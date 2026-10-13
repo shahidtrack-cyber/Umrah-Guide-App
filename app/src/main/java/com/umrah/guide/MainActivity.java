@@ -22,6 +22,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private TextToSpeech textToSpeech;
+    private boolean ttsReady = false;
 
     private static final int SPEECH_REQUEST = 1001;
     private static final int MIC_PERMISSION_REQUEST = 1002;
@@ -45,14 +46,9 @@ public class MainActivity extends Activity {
             new VoiceBridge(), "AndroidVoice"
         );
 
-        textToSpeech = new TextToSpeech(
-            this,
-            status -> {
-                if (status != TextToSpeech.SUCCESS) {
-                    sendSpeechError("Text-to-Speech دستیاب نہیں۔");
-                }
-            }
-        );
+        textToSpeech = new TextToSpeech(this, status -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+        });
 
         webView.loadUrl("file:///android_asset/index.html");
     }
@@ -67,6 +63,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void speak(String text, String language) {
             runOnUiThread(() -> speakText(text, language));
+        }
+
+        @JavascriptInterface
+        public void stop() {
+            runOnUiThread(() -> {
+                if (textToSpeech != null) {
+                    textToSpeech.stop();
+                }
+            });
         }
     }
 
@@ -118,7 +123,7 @@ public class MainActivity extends Activity {
             startActivityForResult(intent, SPEECH_REQUEST);
         } catch (ActivityNotFoundException e) {
             sendSpeechError(
-                "اس موبائل میں Speech Recognition دستیاب نہیں۔"
+                "Speech Recognition اس موبائل پر دستیاب نہیں۔"
             );
         }
     }
@@ -134,16 +139,13 @@ public class MainActivity extends Activity {
         );
 
         if (requestCode == MIC_PERMISSION_REQUEST) {
-
             if (grantResults.length > 0 &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 
                 launchSpeechRecognition();
 
             } else {
-                sendSpeechError(
-                    "مائیکروفون کی اجازت نہیں ملی۔"
-                );
+                sendSpeechError("مائیکروفون کی اجازت نہیں ملی۔");
             }
         }
     }
@@ -181,35 +183,35 @@ public class MainActivity extends Activity {
 
     private void speakText(String text, String language) {
 
-        if (textToSpeech == null) {
-            sendSpeechError("آواز سنانے کی سہولت دستیاب نہیں۔");
+        if (textToSpeech == null || !ttsReady) {
+            sendSpeechError("Voice Engine ابھی تیار نہیں۔");
             return;
         }
 
         Locale locale = Locale.forLanguageTag(language);
+        int result = textToSpeech.setLanguage(locale);
 
-        int availability = textToSpeech.setLanguage(locale);
-
-        if (availability ==
-                TextToSpeech.LANG_MISSING_DATA ||
-            availability ==
-                TextToSpeech.LANG_NOT_SUPPORTED) {
+        if (result == TextToSpeech.LANG_MISSING_DATA ||
+            result == TextToSpeech.LANG_NOT_SUPPORTED) {
 
             sendSpeechError(
-                "اس زبان کی آواز موبائل میں دستیاب نہیں۔"
+                "اس زبان کی آواز موبائل میں انسٹال نہیں۔"
             );
             return;
         }
+
+        textToSpeech.setSpeechRate(0.85f);
 
         textToSpeech.speak(
             text,
             TextToSpeech.QUEUE_FLUSH,
             null,
-            "UmrahTranslator"
+            "UmrahConversation"
         );
     }
 
     private void sendSpeechResult(String result) {
+        if (webView == null) return;
 
         String script =
             "window.onNativeSpeechResult(" +
@@ -220,6 +222,7 @@ public class MainActivity extends Activity {
     }
 
     private void sendSpeechError(String error) {
+        if (webView == null) return;
 
         String script =
             "window.onNativeSpeechError(" +
