@@ -1,592 +1,1897 @@
 <!DOCTYPE html>
 <html lang="ur" dir="rtl">
-
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#075b45">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<title>Umrah Companion · Updated 2026.10</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+/* Voice translator: local text history; internet is required for new translations.
+   MyMemory is a third-party service: only send text after pressing Translate. */
+const TR_LANGS={ur:'ur-PK',ar:'ar-SA',en:'en-US'};
+const TR_CURATED={
+ 'ur|ar|مجھے مسجد نبوی جانے کے لیے ٹیکسی چاہیے۔':'أَحْتَاجُ إِلَى سَيَّارَةِ أُجْرَةٍ لِلذَّهَابِ إِلَى الْمَسْجِدِ النَّبَوِيِّ.',
+ 'ur|ar|مسجد الحرام کہاں ہے؟':'أَيْنَ يَقَعُ الْمَسْجِدُ الْحَرَامُ؟',
+ 'ur|ar|شکریہ':'شُكْرًا',
+ 'en|ar|Thank you':'شُكْرًا',
+ 'en|ar|Where is the mosque?':'أَيْنَ الْمَسْجِدُ؟'
+};
+function translatorHTML(){
+ return `<div class="tr-panel"><h3>🎙️ عمرہ وائس ٹرانسلیٹر</h3>
+ <p class="tr-note">بول کر یا لکھ کر ترجمہ کریں۔ ترجمہ آواز میں سنیں اور اپنی مرضی سے محفوظ کریں۔</p>
+ <div class="tr-lang"><div><label>آپ کی زبان</label><select id="trFrom"><option value="ur">اردو</option><option value="ar">العَرَبِيَّة</option><option value="en">English</option></select></div><button class="outline-btn" style="width:auto;margin:0" onclick="trSwap()">⇄</button><div><label>ترجمہ</label><select id="trTo"><option value="ar">العَرَبِيَّة</option><option value="ur">اردو</option><option value="en">English</option></select></div></div>
+ <div style="margin-top:12px"><label>آپ کی گفتگو</label><textarea id="trInput" class="tr-area" placeholder="یہاں بولیں یا لکھیں..."></textarea></div>
+ <div class="tr-actions"><button onclick="trListen()">🎤 بولیں</button><button onclick="trTranslate()">🌐 ترجمہ کریں</button></div>
+ <div id="trStatus" class="tr-note" role="status" style="margin-top:8px"></div></div>
+ <div class="tr-panel"><h3>ترجمہ</h3><div id="trOutput" class="tr-result" aria-live="polite">ترجمہ یہاں آئے گا۔</div>
+ <div class="tr-actions" style="margin-top:12px"><button onclick="trSpeak()">🔊 سنیں</button><button onclick="trSave()">💾 محفوظ کریں</button></div>
+ <p class="tr-note">عربی کے لیے آپ کا Muhammadi Quranic Font استعمال ہوتا ہے۔ عام خودکار ترجمے میں مکمل اعراب کی ضمانت نہیں؛ منتخب عام جملوں میں درست اعراب شامل ہیں۔</p></div>
+ <div class="tr-panel"><h3>📚 محفوظ گفتگو (آف لائن دستیاب)</h3><input id="trSearch" oninput="trRenderHistory()" placeholder="محفوظ گفتگو تلاش کریں" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:12px"><div id="trHistory"></div><button class="outline-btn" onclick="trClearHistory()">محفوظ گفتگو حذف کریں</button></div>`;
+}
+let trLatest=null,trRecognizing=null;
+function trStatus(message){const el=document.getElementById('trStatus');if(el)el.textContent=message;}
+function trSwap(){const a=document.getElementById('trFrom'),b=document.getElementById('trTo');const t=a.value;a.value=b.value;b.value=t;}
+function trListen(){
+ const lang=TR_LANGS[document.getElementById('trFrom').value];
+ if(window.AndroidVoice&&typeof AndroidVoice.listen==='function'){
+   trStatus('مائیک پر بولیں…');AndroidVoice.listen(lang);return;
+ }
+ const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!Rec){trStatus('اس ڈیوائس پر آواز پہچاننے کی سہولت دستیاب نہیں۔ براہِ کرم لکھیں۔');return;}
+ try{const rec=new Rec();trRecognizing=rec;rec.lang=lang;rec.interimResults=false;rec.onresult=e=>{document.getElementById('trInput').value=e.results[0][0].transcript;trStatus('آواز پہچان لی گئی۔ ترجمہ کریں دبائیں۔')};rec.onerror=e=>trStatus('مائیک مسئلہ: '+e.error);rec.start();trStatus('مائیک پر بولیں…');}catch(e){trStatus('مائیک شروع نہیں ہوا۔')}
+}
+window.onNativeSpeechResult=function(value){const el=document.getElementById('trInput');if(el){el.value=value;trStatus('آواز پہچان لی گئی۔ ترجمہ کریں دبائیں۔')}};
+window.onNativeSpeechError=function(value){trStatus('مائیک: '+value)};
+async function trTranslate(){
+ const source=document.getElementById('trFrom').value,target=document.getElementById('trTo').value;
+ const input=document.getElementById('trInput').value.trim();
+ if(!input){trStatus('پہلے کوئی جملہ لکھیں یا بولیں۔');return;}
+ if(input.length>450){trStatus('ایک بار میں زیادہ سے زیادہ 450 حروف لکھیں۔');return;}
+ trLatest=null;trStatus('ترجمہ حاصل کیا جا رہا ہے…');
+ let translated='';
+ if(source===target)translated=input;
+ else if(TR_CURATED[source+'|'+target+'|'+input])translated=TR_CURATED[source+'|'+target+'|'+input];
+ else {
+  try{
+   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
+   try{const url='https://api.mymemory.translated.net/get?q='+encodeURIComponent(input)+'&langpair='+encodeURIComponent(source+'|'+target);
+    const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw new Error('Service unavailable');
+    const data=await response.json();if(data.responseStatus!==200||!data.responseData||!data.responseData.translatedText)throw new Error('Translation unavailable');
+    translated=data.responseData.translatedText;
+   }finally{clearTimeout(timeout)}
+  }catch(e){trStatus('آن لائن ترجمہ نہیں ہو سکا۔ انٹرنیٹ چیک کریں یا دوبارہ کوشش کریں۔');return;}
+ }
+ const el=document.getElementById('trOutput');el.textContent=translated;el.classList.toggle('tr-arabic',target==='ar');
+ trLatest={source,target,input,translated,date:new Date().toISOString()};trStatus('ترجمہ تیار ہے۔ محفوظ کرنے کے لیے 💾 دبائیں۔');
+}
+function trSpeak(){
+ if(!trLatest){trStatus('پہلے ترجمہ کریں۔');return;}
+ const lang=TR_LANGS[trLatest.target],message=trLatest.translated;
+ if(window.AndroidVoice&&typeof AndroidVoice.speak==='function'){AndroidVoice.speak(message,lang);return;}
+ if('speechSynthesis' in window){speechSynthesis.cancel();const utter=new SpeechSynthesisUtterance(message);utter.lang=lang;utter.rate=.86;speechSynthesis.speak(utter);return;}
+ trStatus('اس ڈیوائس پر آواز سنانے کی سہولت دستیاب نہیں۔');
+}
+function trSave(){if(!trLatest){trStatus('پہلے ترجمہ کریں۔');return;}
+ const rows=load('translatorHistory',[]);rows.unshift({...trLatest});save('translatorHistory',rows.slice(0,300));trStatus('گفتگو موبائل میں محفوظ ہو گئی۔');trRenderHistory();}
+function trRenderHistory(){const box=document.getElementById('trHistory');if(!box)return;
+ const q=(document.getElementById('trSearch')?.value||'').trim().toLowerCase();const rows=load('translatorHistory',[]).filter(x=>(x.input+' '+x.translated).toLowerCase().includes(q));
+ box.innerHTML=rows.length?rows.map(x=>`<div class="tr-history-item"><small>${esc(x.date?.slice(0,10))} · ${esc(x.source)} → ${esc(x.target)}</small><p>${esc(x.input)}</p><div class="${x.target==='ar'?'tr-arabic':''}">${esc(x.translated)}</div></div>`).join(''):'<p class="tr-note">ابھی کوئی محفوظ گفتگو نہیں۔</p>';
+}
+function trClearHistory(){if(confirm('کیا آپ محفوظ گفتگو حذف کرنا چاہتے ہیں؟')){save('translatorHistory',[]);trRenderHistory();}}
 
-<title>میرا عمرہ گائیڈ</title>
-
+</script>
 <style>
+@font-face{
+  font-family:Jameel;
+  src:url('Jameel Noori Nastaleeq Regular.ttf') format('truetype');
+}
+@font-face{
+  font-family:MuhammadiQuran;
+  src:url('MUHAMMADI QURANIC FONT.ttf') format('truetype');
+}
+.arabic-text{
+  font-family:MuhammadiQuran,serif;
+  direction:rtl;
+  font-size:24px;
+  line-height:2.1;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --green:#0b6b53;--dark:#075541;--light:#eaf5f1;
+  --gold:#c79a42;--bg:#f5f7f6;--text:#17231f;
+  --muted:#6c7773;--white:#fff;--border:#e3ebe8;
+}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:Jameel,serif;direction:rtl;padding-bottom:85px;
+}
+button,input,textarea,select{font-family:Jameel,serif}
+.app{max-width:520px;margin:auto;min-height:100vh}
+.header{
+  background:linear-gradient(145deg,var(--dark),var(--green));
+  color:white;padding:24px 20px 42px;border-radius:0 0 30px 30px;
+}
+.brand{display:flex;align-items:center;gap:11px}
+.logo{
+  width:52px;height:52px;border-radius:16px;background:#ffffff20;
+  display:flex;align-items:center;justify-content:center;font-size:29px
+}
+.brand h1{margin:0;font-size:29px}
+.brand small{font-family:Arial;font-size:11px;opacity:.8}
+.header-message{font-size:20px;margin:20px 0 0}
 
-/* Jameel Noori Nastaleeq */
-@font-face {
-  font-family: 'JameelNoori';
-  src: url('Jameel%20Noori%20Nastaleeq%20Regular.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
+.card{
+  background:white;margin:15px 16px;border-radius:20px;padding:17px;
+  border:1px solid var(--border);box-shadow:0 4px 18px #00000008;
+}
+.trip-card{margin-top:-22px;position:relative}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+h2{margin:0;font-size:23px}
+.muted{color:var(--muted)}
+.badge{
+  background:var(--light);color:var(--green);
+  padding:5px 10px;border-radius:20px
+}
+.main-btn{
+  width:100%;border:0;background:var(--green);color:white;
+  border-radius:13px;padding:11px;margin-top:10px;font-size:18px;cursor:pointer
+}
+.outline-btn{
+  width:100%;border:1px solid #a8c9bd;background:#f8fbfa;
+  color:var(--green);border-radius:13px;padding:10px;
+  margin-top:10px;font-size:18px;cursor:pointer
+}
+.money-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.money-box{background:#f7f9f8;border-radius:14px;padding:10px 4px;text-align:center}
+.money-box span{display:block;color:var(--muted);font-size:14px}
+.money-box strong{font-family:Arial;font-size:15px;display:block;margin-top:5px}
+
+.section{padding:0 16px}
+.section-title{display:flex;justify-content:space-between;align-items:center;margin:15px 2px 10px}
+.service-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.service{
+  background:white;border:1px solid var(--border);border-radius:20px;
+  padding:15px 13px;min-height:120px;cursor:pointer
+}
+.service:active{transform:scale(.98)}
+.icon{
+  width:44px;height:44px;background:var(--light);border-radius:14px;
+  display:flex;align-items:center;justify-content:center;font-size:23px
+}
+.service h3{margin:6px 0 0;font-size:20px}
+.service p{margin:2px 0;color:var(--muted);font-size:14px}
+
+.page{display:none;max-width:520px;margin:auto;min-height:100vh;padding-bottom:85px}
+.page.active{display:block}
+.page-header{
+  background:var(--green);color:white;padding:18px 15px;
+  display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5
+}
+.back{
+  border:0;background:#ffffff22;color:white;width:42px;height:42px;
+  border-radius:12px;font-size:25px
+}
+.page-header h2{font-size:24px}
+.page-content{padding:15px}
+.info{
+  background:white;border:1px solid var(--border);border-radius:18px;
+  padding:16px;margin-bottom:12px
+}
+.info h3{color:var(--green);font-size:21px;margin:0 0 7px}
+.info p{font-size:17px;line-height:2;margin:0;color:#45524e}
+.step{
+  background:white;border-right:4px solid var(--green);
+  border-radius:15px;padding:14px;margin-bottom:10px
+}
+.step h3{margin:0;color:var(--green);font-size:20px}
+.step p{margin:4px 0 0;line-height:1.9;font-size:17px}
+
+.field{margin-bottom:12px}
+.field label{display:block;margin-bottom:4px;font-size:17px}
+.field input,.field textarea,.field select{
+  width:100%;border:1px solid #d8e2de;background:white;
+  border-radius:12px;padding:11px;font-size:17px;outline:none
+}
+.field textarea{min-height:100px;resize:vertical}
+
+.counter{text-align:center}
+.counter-number{
+  font-family:Arial;font-size:55px;font-weight:bold;color:var(--green);
+  margin:15px 0
+}
+.counter-buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.check-item{
+  display:flex;align-items:center;gap:10px;background:white;
+  border:1px solid var(--border);padding:12px;border-radius:13px;margin-bottom:8px
+}
+.check-item input{width:21px;height:21px}
+
+.expense-item{
+  background:#f8faf9;border-radius:12px;padding:10px;margin-top:8px;
+  display:flex;justify-content:space-between;gap:10px
+}
+.delete-btn{border:0;background:#ffeaea;color:#a32626;border-radius:9px;padding:5px 9px}
+
+.bottom-nav{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:520px;height:70px;background:#fff;
+  border-top:1px solid var(--border);display:grid;
+  grid-template-columns:repeat(4,1fr);z-index:20
+}
+.nav{
+  border:0;background:white;color:#737f7b;font-size:14px;padding:6px 2px
+}
+.nav span{font-family:Arial;display:block;font-size:21px}
+.nav.active{color:var(--green)}
+.notice{
+  background:#fff8e9;border:1px solid #f0ddb3;border-radius:13px;
+  padding:11px;font-size:15px;margin-bottom:12px
+}
+.success{
+  display:none;background:#eaf7f1;color:#086347;border-radius:12px;
+  padding:10px;margin-top:10px;text-align:center
 }
 
-* {
-  box-sizing: border-box;
-}
+/* First-run screens — existing dashboard styling stays untouched */
+#onboardRoot{position:fixed;inset:0;z-index:100;background:#063a2e;color:#fff;overflow-y:auto;font-family:Jameel,serif;direction:rtl}
+#onboardRoot[hidden]{display:none!important}
+.ob-screen{min-height:100dvh;padding:34px 24px 120px;max-width:520px;margin:auto;position:relative;display:flex;flex-direction:column;justify-content:center}
+.ob-pattern{background-color:#073f32;background-image:repeating-linear-gradient(45deg,transparent 0 55px,#ffffff06 56px 57px,transparent 58px 110px),repeating-linear-gradient(-45deg,transparent 0 55px,#ffffff05 56px 57px,transparent 58px 110px)}
+.ob-gold{color:#d4b45e}.ob-title{font-size:38px;line-height:1.5;margin:10px 0}.ob-sub{font-size:20px;line-height:2;color:#e1e9e4}.ob-kicker{font-size:21px;color:#d4b45e}.ob-card{border:1px solid #ffffff2b;border-radius:22px;background:#ffffff13;padding:18px;margin:10px 0;line-height:1.8;font-size:19px}.ob-card h3{margin:0;color:#e5c778}.ob-card p{margin:8px 0 0}.ob-actions{position:sticky;bottom:0;background:linear-gradient(transparent,#063a2e 16%);padding:22px 0 8px;margin-top:auto}.ob-primary{display:block;width:100%;border:0;border-radius:35px;background:#c9a84f;color:#073f32;font-size:23px;padding:15px;cursor:pointer}.ob-secondary{display:block;width:100%;border:0;background:transparent;color:#e2e7e2;font-size:20px;padding:12px;cursor:pointer}.ob-dots{text-align:center;letter-spacing:9px;color:#c9a84f;font:25px Arial;margin:24px 0}.ob-choice{border:1px solid #ffffff50;border-radius:14px;background:#ffffff12;color:white;padding:12px;font-size:19px;cursor:pointer}.ob-choice.selected{background:#c9a84f;color:#073f32;border-color:#c9a84f}.ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.ob-select{width:100%;padding:12px;border-radius:12px;font-size:19px;background:#fff;color:#143d30;border:0}.ob-check{display:flex;gap:12px;align-items:center;font-size:19px;margin:12px 0}.ob-check input{width:22px;height:22px;accent-color:#c9a84f}.ob-privacy{background:#faf7ee;color:#22332b}.ob-privacy .ob-card{background:white;color:#36463f;border:1px solid #e6e0cc}.ob-privacy .ob-card h3{color:#0b604a}.ob-privacy .ob-sub{color:#58625c}.ob-privacy .ob-actions{background:linear-gradient(transparent,#faf7ee 16%)}.ob-privacy .ob-secondary{color:#69726d}.ob-privacy .ob-title{color:#1e2a23}.ob-privacy .ob-primary{background:#0b604a;color:white}.ob-privacy .ob-kicker{color:#b39242}.ob-splash-logo{width:128px;height:128px;border:2px solid #c9a84f;border-radius:30px;display:grid;place-items:center;margin:0 auto 24px;font-size:76px;background:#ffffff0d}.ob-small{font-size:16px;opacity:.85;line-height:1.8}.ob-rtl-ar{font-family:MuhammadiQuran,serif;direction:rtl;line-height:2.2}
 
-body {
-  margin: 0;
-  font-family: 'JameelNoori', serif;
-  background: #f4f7f5;
-  color: #202020;
-  line-height: 1.9;
-}
+/* Approved splash artwork, stored beside index.html in assets */
+#onboardRoot:has(.splash-art){background:#052d26}
+.ob-screen:has(.splash-art){padding:0;min-height:100dvh;max-width:520px;display:block}
+.splash-art{position:relative;width:100%;min-height:100dvh;background:#063a2e url('umrah-splash.png') center center / contain no-repeat}
+.splash-tap{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;cursor:pointer;touch-action:manipulation}
+.ob-verse{font-family:MuhammadiQuran,serif;color:#f2d38a;font-size:27px;line-height:2.3;text-align:center;margin:16px 0 5px}.ob-verse-ref{text-align:center;color:#d6e3db;font-size:15px}.ob-screen:has(.splash-art){height:100dvh;overflow:hidden}
 
-/* Header */
+.gps-icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:39px;height:39px;padding:7px!important;border-radius:50%!important;flex-shrink:0}.prayer-city #prayerLocationText{font-weight:600;direction:auto}
+/* Premium home — independent of existing modules and saved data */
+.premium-hero{background:linear-gradient(155deg,#053d33,#08634d 68%,#0c7557);color:#fff;padding:24px 19px 34px;border-radius:0 0 34px 34px;position:relative;overflow:hidden}
+.premium-hero:before{content:'۞';position:absolute;left:-20px;top:22px;font-size:210px;color:#ffffff0a;pointer-events:none}
+.premium-top{display:flex;justify-content:space-between;align-items:center;position:relative}.premium-name{font-size:15px;color:#e2d6a9}.premium-title{font-size:28px;font-weight:bold;line-height:1.5}.premium-avatar{border:1px solid #bfa368;border-radius:50%;width:44px;height:44px;display:grid;place-items:center;font-size:23px}
+.prayer-hero{text-align:center;margin:20px 0 14px;position:relative}.prayer-hero .eyebrow{color:#e5c985;font-size:17px}.prayer-hero .next-name{font-size:26px}.prayer-hero .next-clock{font:700 46px Arial,sans-serif;direction:ltr;margin:8px 0}.prayer-hero .countdown{font-size:16px;color:#dbece5}.prayer-city{display:flex;align-items:center;justify-content:center;gap:8px;margin:12px 0;font-size:17px}.prayer-city button,.qibla-button{background:#ffffff19;border:1px solid #d7c58b66;color:#fff;border-radius:20px;padding:6px 13px;font-size:15px}
+.prayer-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:18px}.prayer-chip{background:#ffffff12;border:1px solid #ffffff1c;border-radius:13px;text-align:center;padding:10px 1px;min-width:0}.prayer-chip.current{background:#d1b36b;color:#173f32}.prayer-chip .prayer-label{font-size:14px}.prayer-chip .prayer-time{font:12px Arial,sans-serif;direction:ltr;margin-top:6px;white-space:nowrap}
+.premium-body{padding:4px 0 16px}.premium-section{margin:20px 16px}.premium-section h2{font-size:23px;color:#173b31;margin-bottom:10px}.verse-card{background:#fffdf5;border:1px solid #e7d9b6;border-radius:21px;padding:20px 17px;text-align:center;box-shadow:0 5px 20px #00000008}.verse-card .verse-heading{font:700 11px Arial,sans-serif;letter-spacing:2px;color:#967737}.verse-ar{font-family:MuhammadiQuran,serif;font-size:27px;line-height:2.3;color:#205747;margin:8px 0}.verse-translation{font-size:18px;color:#5c665c}.verse-ref{font-size:14px;color:#9b7d45;margin-top:8px}.verse-dots{display:flex;justify-content:center;gap:7px;margin-top:12px}.verse-dots button{width:8px;height:8px;padding:0;border:0;border-radius:20px;background:#d8d2c2}.verse-dots button.active{width:20px;background:#a68a4b}
+.premium-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.quick-item{border:1px solid #e5e9e2;background:#fff;border-radius:17px;padding:12px 2px;font-size:15px;text-align:center;color:#174d3d}.quick-item span{display:block;font-size:25px;margin-bottom:4px}.home-legacy-title{padding:0 16px;margin-top:22px}.home-legacy-title h2{color:#184e3d}
+@media(max-width:360px){.prayer-hero .next-clock{font-size:39px}.prayer-chip .prayer-time{font-size:10px}.premium-quick{gap:5px}.quick-item{font-size:13px}}
+/* Reference-inspired home refinements; original emerald/gold identity retained */
+:root{--bg:#f8f5ed;--gold:#d5b16a}
+.premium-hero{padding:23px 18px 30px;background:radial-gradient(circle at 95% 0%,#21735c 0%,transparent 45%),linear-gradient(150deg,#073a30,#075640 72%,#0c7155);box-shadow:0 9px 26px #0b463020}
+.premium-avatar{background:#ffffff15;width:49px;height:49px;box-shadow:0 2px 10px #0002}
+.premium-top .premium-title{font-family:Arial,sans-serif;font-size:23px;letter-spacing:.2px;margin-top:5px}
+.prayer-hero{margin:25px 0 18px}.prayer-hero .next-clock{font-size:49px;letter-spacing:1px}.prayer-hero .countdown{color:#e8e6d7}
+.prayer-strip{gap:5px}.prayer-chip{padding:12px 1px;border-radius:15px;background:#ffffff15}.prayer-chip.current{background:linear-gradient(140deg,#f2d992,#cda65a)}
+.premium-body{padding-top:6px}.premium-section{margin:21px 16px}.premium-section h2{font-size:22px}
+.verse-card{border-color:#e5d7b6;box-shadow:0 7px 20px #5b4c2b10}
+.quick-item{min-height:84px;box-shadow:0 3px 11px #2045320b;border-color:#e7e2d7;transition:transform .15s}.quick-item:active{transform:scale(.96)}
+.quick-item span{font-size:28px}.discover-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.discover-head button{border:0;background:none;color:#08735a;font-size:16px}
+.journey-highlight{margin:8px 16px 18px;padding:17px;background:#fff;border:1px solid #e9e1d2;border-radius:20px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 4px 16px #1647320a}
+.journey-highlight strong{font-size:20px;color:#164a39}.journey-highlight small{display:block;font-size:15px;color:#6e786d}.journey-highlight button{background:#0c604a;color:#fff;border:0;border-radius:12px;padding:9px 15px;font-size:16px}
+.bottom-nav{height:76px;border-top:1px solid #e6e1d8;box-shadow:0 -6px 22px #102f2410;grid-template-columns:repeat(5,minmax(0,1fr));padding-bottom:env(safe-area-inset-bottom)}
+.nav{font-size:12px;line-height:1.2}.nav span{font-size:22px;margin-bottom:5px}.nav.active{color:#087057;font-weight:bold}.nav:focus-visible,.quick-item:focus-visible{outline:2px solid #b88b37;outline-offset:-2px}
+@media(max-width:360px){.nav{font-size:11px}.premium-top .premium-title{font-size:20px}}
 
-header {
-  background: linear-gradient(135deg, #064c3b, #08745a);
-  color: white;
-  text-align: center;
-  padding: 28px 15px;
-}
+/* Dashboard v3 — distinct reference-inspired tab screens, existing modules untouched */
+.bottom-nav{height:76px;grid-template-columns:repeat(5,minmax(0,1fr));box-shadow:0 -6px 25px #102e2512;padding:6px 4px max(5px,env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
+.bottom-nav .nav{font:600 11px Arial,sans-serif;border-radius:14px;background:transparent;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;min-width:0;white-space:nowrap}
+.bottom-nav .nav span{font-size:23px;line-height:1.1}.bottom-nav .nav.active{background:#e8f3ed;color:#075b43}
+.hub-head{background:linear-gradient(135deg,#073b30,#0d7054);color:#fff;border-radius:22px;padding:23px 18px;margin-bottom:16px;box-shadow:0 9px 22px #0b51301c}
+.hub-head h2{color:#f0d38c;font-size:28px}.hub-head p{margin:7px 0 0;line-height:1.8;font-size:17px}
+.hub-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.hub-tile{background:#fff;border:1px solid #e7e8df;border-radius:18px;padding:17px 12px;min-height:112px;text-align:right;box-shadow:0 3px 12px #00000008;color:#184637;cursor:pointer}
+.hub-tile .hub-ico{display:block;font-size:30px;margin-bottom:8px}.hub-tile strong{font-size:19px;display:block}.hub-tile small{font-size:13px;color:#64756c}
+.hub-info{background:#fffaf0;border:1px solid #e6d5aa;border-radius:17px;padding:15px;margin:0 0 15px;line-height:1.9}
+@media(max-width:360px){.bottom-nav .nav{font-size:10px}.bottom-nav .nav span{font-size:21px}}
 
-header h1 {
-  margin: 0;
-  font-size: 34px;
-}
+/* Qibla card and compass */
+.prayer-city{justify-content:flex-start;padding-right:0;padding-left:115px;min-height:102px;position:relative;flex-wrap:wrap}
+.qibla-card{position:absolute;left:0;top:0;width:102px;height:104px;border:1px solid #d8b970!important;border-radius:23px!important;background:linear-gradient(145deg,#ffffff29,#ffffff0d)!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#fff!important;box-shadow:0 4px 16px #002d221f;cursor:pointer}
+.qibla-card .qibla-dial{width:49px;height:49px;display:grid;place-items:center;border:3px solid #d7b66c;border-radius:50%;color:#f5d48c;font:32px Arial;transform:rotate(-45deg)}
+.qibla-card strong{font:700 16px Arial}.qibla-card small{font:10px Arial;color:#f4dfad}
+.qibla-panel{text-align:center}.qibla-compass{position:relative;width:min(72vw,270px);height:min(72vw,270px);border:10px solid #c6a45d;border-radius:50%;margin:22px auto;background:radial-gradient(circle,#0d6650,#07382e);box-shadow:0 8px 25px #063f3529;display:grid;place-items:center}
+.qibla-needle{font:96px Arial;color:#e6c679;transition:transform .2s ease;transform:rotate(-90deg);text-shadow:0 2px 9px #0005}.qibla-north{position:absolute;top:8px;color:white;font:700 16px Arial}.qibla-needle{position:relative;display:inline-block;line-height:1}.qibla-kaaba{position:absolute;top:-18px;right:-17px;font-size:30px;line-height:1;filter:drop-shadow(0 2px 3px #0008)}.qibla-result{font-size:19px;color:#0b604a;min-height:35px}
+@media(max-width:360px){.prayer-city{padding-left:100px}.qibla-card{width:92px;height:98px}}
 
-header p {
-  margin: 5px 0 0;
-  color: #e6fff5;
-  font-size: 18px;
-}
+/* Local Haram artwork: green overlay keeps labels legible offline. */
+.premium-hero{background:linear-gradient(155deg,rgba(3,48,39,.86),rgba(4,71,53,.75)),url('haram-background.jpg') center center/cover no-repeat!important}
+.premium-hero:before{opacity:.35}
+.premium-avatar{overflow:hidden;cursor:pointer;flex-shrink:0}
+.premium-avatar img,.bottom-profile-photo{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.profile-photo-picker{margin:10px 0;padding:12px;border:1px dashed #b8cabc;border-radius:12px}
 
-/* Main */
-
-.container {
-  max-width: 650px;
-  margin: auto;
-  padding: 15px;
-}
-
-.card {
-  background: white;
-  border-radius: 16px;
-  padding: 20px;
-  margin: 14px 0;
-  box-shadow: 0 3px 12px rgba(0,0,0,.08);
-}
-
-.card h2 {
-  color: #075b45;
-  margin-top: 0;
-  font-size: 26px;
-}
-
-.card p {
-  font-size: 19px;
-}
-
-/* Step cards */
-
-.step {
-  border-right: 5px solid #c9a227;
-}
-
-.number {
-  display: inline-block;
-  background: #075b45;
-  color: white;
-  width: 34px;
-  height: 34px;
-  line-height: 34px;
-  border-radius: 50%;
-  text-align: center;
-  margin-left: 7px;
-  font-family: Arial, sans-serif;
-  font-size: 17px;
-}
-
-/* Arabic duas */
-
-.arabic {
-  direction: rtl;
-  font-family: "Traditional Arabic", "Times New Roman", serif;
-  font-size: 27px;
-  line-height: 2;
-  text-align: center;
-  color: #064c3b;
-  background: #f5faf8;
-  padding: 15px;
-  border-radius: 10px;
-  margin-top: 10px;
-}
-
-/* Urdu translation */
-
-.translation {
-  background: #fff9e8;
-  padding: 12px;
-  border-radius: 10px;
-  line-height: 2;
-  font-size: 18px;
-  margin-top: 5px;
-}
-
-/* Notice */
-
-.notice {
-  background: #fff5d6;
-  border-right: 5px solid #c9a227;
-  padding: 12px;
-  border-radius: 8px;
-  line-height: 2;
-  font-size: 18px;
-}
-
-/* Counters */
-
-.counterBox {
-  text-align: center;
-}
-
-.counter {
-  font-family: Arial, sans-serif;
-  font-size: 65px;
-  font-weight: bold;
-  color: #075b45;
-  margin: 10px;
-}
-
-/* Buttons */
-
-button {
-  font-family: 'JameelNoori', serif;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 18px;
-  margin: 5px;
-  font-size: 20px;
-  cursor: pointer;
-}
-
-.plus {
-  background: #075b45;
-  color: white;
-  width: 75%;
-}
-
-.reset {
-  background: #e9eceb;
-  color: #333;
-}
-
-/* Footer */
-
-footer {
-  text-align: center;
-  color: #777;
-  padding: 25px;
-  font-size: 16px;
-}
-
+/* Umrah voice translator */
+.tr-panel{background:#fff;border:1px solid #e6e8de;border-radius:20px;padding:16px;margin-bottom:14px}
+.tr-panel h3{margin:0 0 10px;color:#075541}.tr-lang{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:7px}
+.tr-lang select{width:100%;min-width:0;padding:10px;border:1px solid #cbdcd5;border-radius:12px;background:white}
+.tr-area{width:100%;min-height:95px;resize:vertical;padding:12px;border:1px solid #d8e2de;border-radius:12px;font-size:18px;direction:auto}
+.tr-arabic{font-family:MuhammadiQuran,serif;font-size:27px;line-height:2.25;direction:rtl;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere}
+.tr-result{background:#f8f7ed;border:1px solid #e4d5a7;border-radius:15px;padding:15px;min-height:80px;white-space:pre-wrap;overflow-wrap:anywhere}
+.tr-actions{display:flex;flex-wrap:wrap;gap:8px}.tr-actions button{flex:1;min-width:95px;border:1px solid #b9d6c9;border-radius:12px;background:#eaf5f1;color:#075541;padding:10px;font-size:17px}
+.tr-note{color:#66746e;font-size:15px;line-height:1.7}.tr-history-item{border-bottom:1px solid #e8e8e8;padding:10px 0}
 </style>
 </head>
 
-
 <body>
 
-<header>
+<div id="onboardRoot" class="ob-pattern" hidden aria-live="polite"></div>
 
-<h1>🕋 میرا عمرہ گائیڈ</h1>
+<div id="welcomeScreen" style="display:none; padding:25px 18px; min-height:100vh; background:#f5f7f6;">
+  <div class="info" style="margin-top:35px;">
+    <div style="text-align:center;font-size:50px;">🕋</div>
+    <h2 style="text-align:center;color:#0b6b53;">عمرہ کمپینین میں خوش آمدید</h2>
+    <p style="text-align:center;color:#6c7773;">اپنا سفر شروع کرنے کے لیے اپنی پروفائل بنائیں</p>
 
-<p>
-عمرہ کے سفر کے لیے آسان Step-by-Step Guide
-</p>
+    <div class="field">
+      <label>آپ کا نام</label>
+      <input id="welcomeName" placeholder="اپنا نام درج کریں">
+    </div>
 
-</header>
+    <div class="field">
+      <label>ای میل</label>
+      <input id="welcomeEmail" type="email" placeholder="example@email.com">
+    </div>
 
+    <div class="field">
+      <label>رابطہ نمبر</label>
+      <input id="welcomeContact" type="tel" placeholder="مثلاً +92 300 1234567">
+    </div>
 
-<div class="container">
+    <div class="field">
+      <label>آپ کس ملک سے ہیں؟</label>
+      <select id="welcomeCountry">
+        <option value="">ملک منتخب کریں</option>
+        <option value="Pakistan">Pakistan</option>
+        <option value="India">India</option>
+        <option value="Bangladesh">Bangladesh</option>
+        <option value="United Kingdom">United Kingdom</option>
+        <option value="United States">United States</option>
+        <option value="UAE">UAE</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
 
+    <div class="field"><label>پروفائل تصویر (اختیاری)</label><input id="welcomePhoto" type="file" accept="image/*" onchange="saveProfilePhoto(this)"></div>
+    <button class="main-btn" onclick="saveWelcomeProfile()">Next</button>
+  </div>
+</div>
+<div id="setupTravelScreen" style="display:none;padding:25px 18px;min-height:100vh;background:#f5f7f6;">
+  <div class="info" style="margin-top:20px;">
+    <div style="text-align:center;font-size:48px;">✈️</div>
+    <h2 style="text-align:center;color:#0b6b53;">میرا سفر</h2>
+    <p style="text-align:center;color:#6c7773;">سفر کی تفصیل ابھی درج کریں یا بعد میں مکمل کریں۔</p>
+    <div class="field"><label>روانگی کی تاریخ</label><input id="setupDeparture" type="date"></div>
+    <div class="field"><label>واپسی کی تاریخ</label><input id="setupReturn" type="date"></div>
+    <div class="field"><label>فلائٹ نمبر</label><input id="setupFlight"></div>
+    <div class="field"><label>روانگی کا شہر</label><input id="setupCity"></div>
+    <button class="main-btn" onclick="saveSetupTravel()">محفوظ کریں اور آگے جائیں</button>
+    <button class="outline-btn" onclick="skipSetupTravel()">ابھی Skip کریں — بعد میں مکمل کروں گا</button>
+  </div>
+</div>
+<div id="home" class="app">
+<div class="premium-hero">
+ <div class="premium-top"><div><div class="premium-name" id="premiumGreeting">السلام علیکم</div><div class="premium-title">Umrah Companion</div></div><div class="premium-avatar" id="dashboardAvatar" role="button" onclick="showPage('profile')" aria-label="Profile photo">👤</div></div>
+ <div class="prayer-hero"><div class="eyebrow" id="nextPrayerLabel">اگلی نماز</div><div class="next-name" id="nextPrayerName">نماز کے اوقات</div><div class="next-clock" id="nextPrayerClock">--:--</div><div class="countdown" id="nextPrayerCountdown">مقام منتخب کریں</div></div>
+ <div class="prayer-city"><span id="prayerLocationText">Makkah</span><button class="gps-icon-btn" onclick="enableAutoPrayerLocation()" title="موجودہ مقام حاصل کریں" aria-label="موجودہ مقام خودکار حاصل کریں"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button><button class="qibla-card" onclick="openQibla()" aria-label="Open Qibla compass"><span class="qibla-dial">➤</span><strong>Qibla</strong><small>Find direction</small></button></div>
+ <div class="prayer-strip" id="prayerStrip"><div class="prayer-chip">نماز کے اوقات لوڈ ہو رہے ہیں…</div></div>
+ </div>
+ <div class="premium-body">
+ <section class="premium-section"><h2 id="verseSectionTitle">آج کی آیت</h2><div class="verse-card"><div class="verse-heading">VERSE OF THE DAY</div><div class="verse-ar" id="verseArabic"></div><div class="verse-translation" id="verseTranslation"></div><div class="verse-ref" id="verseReference"></div><div class="verse-dots" id="verseDots"></div></div></section>
+ <section class="premium-section" id="discoverSection"><div class="discover-head"><h2>Discover · فوری سہولیات</h2><button onclick="showPage('discoverHub')">سب دیکھیں ←</button></div><div class="premium-quick"><button class="quick-item" onclick="showPage('guide')"><span>🕋</span>عمرہ</button><button class="quick-item" onclick="showPage('duas')"><span>🤲</span>دعائیں</button><button class="quick-item" onclick="openQibla()"><span>🧭</span>قبلہ</button><button class="quick-item" onclick="showPage('tawaf')"><span>🔄</span>طواف</button><button class="quick-item" onclick="showPage('ziyarat')"><span>📍</span>زیارات</button><button class="quick-item" onclick="showPage('checklist')"><span>✅</span>تیاری</button><button class="quick-item" onclick="showPage('myHotel')"><span>🏨</span>ہوٹل</button><button class="quick-item" onclick="showPage('nearMe')"><span>🗺️</span>قریب</button><button class="quick-item" onclick="showPage('translator')"><span>🎙️</span>ترجمہ</button></div></section>
+ </div>
+<div class="journey-highlight"><div><strong>✈️ My Journey</strong><small>اپنے عمرہ سفر کی تفصیلات اور تیاری</small></div><button onclick="showPage('trip')">کھولیں ←</button></div>
+<section class="card trip-card">
+  <div class="row">
+    <h2>میرا عمرہ</h2>
+    <span class="badge">سفر کی تیاری</span>
+  </div>
+  <div id="tripDateText" class="muted">روانگی کی تاریخ ابھی درج نہیں کی گئی</div>
+  <button class="outline-btn" onclick="setTripDate()">روانگی کی تاریخ درج کریں</button>
+</section>
 
-<!-- STEP 1 -->
+<section class="card">
+  <div class="row">
+    <h2>میرے اخراجات</h2>
+    <span style="color:var(--green)" onclick="showPage('expenses')">تفصیل دیکھیں</span>
+  </div>
+  <div class="money-grid">
+    <div class="money-box"><span>کل بجٹ</span><strong id="homeBudget">PKR 0</strong></div>
+    <div class="money-box"><span>خرچ</span><strong id="homeSpent">PKR 0</strong></div>
+    <div class="money-box"><span>باقی</span><strong id="homeRemaining">PKR 0</strong></div>
+  </div>
+</section>
 
-<div class="card step">
+<section class="section" id="allServicesSection">
+  <div class="section-title">
+    <h2>تمام عمرہ خدمات</h2><span class="muted">ضروری سہولیات</span>
+  </div>
 
-<h2>
-<span class="number">۱</span>
-احرام اور نیت
-</h2>
-
-<p>
-میقات سے پہلے غسل یا وضو کریں اور احرام کی تیاری کریں۔
-مرد احرام کے دو کپڑے پہنیں۔
-خواتین اپنے عام شرعی لباس میں رہیں۔
-</p>
-
-<p>
-<strong>نیت دل میں کریں۔ پھر کہیں:</strong>
-</p>
-
-<div class="arabic">
-لَبَّيْكَ اللَّهُمَّ عُمْرَةً
+  <div class="service-grid">
+    <div class="service" onclick="showPage('guide')"><div class="icon">🕋</div><h3>عمرہ گائیڈ</h3><p>احرام سے تکمیلِ عمرہ تک</p></div>
+    <div class="service" onclick="showPage('translator')"><div class="icon">🎙️</div><h3>Voice Translator</h3><p>بولیں، ترجمہ پڑھیں اور سنیں</p></div>
+    <div class="service" onclick="showPage('duas')"><div class="icon">🤲</div><h3>دعائیں</h3><p>اہم مسنون دعائیں</p></div>
+    <div class="service" onclick="showPage('tawaf')"><div class="icon">↻</div><h3>طواف و سعی</h3><p>آسان کاؤنٹر</p></div>
+    <div class="service" onclick="showPage('checklist')"><div class="icon">✓</div><h3>میری تیاری</h3><p>ضروری سامان کی فہرست</p></div>
+    <div class="service" onclick="showPage('package')"><div class="icon">🧳</div><h3>میرا پیکیج</h3><p>ہوٹل فاصلہ، ایجنسی، ٹکٹ اور ویزا</p></div>
+    <div class="service" onclick="showPage('expenses')"><div class="icon">₨</div><h3>اخراجات</h3><p>بجٹ اور خرچ محفوظ کریں</p></div>
+    <div class="service" onclick="showPage('trip')"><div class="icon">✈</div><h3>میرا سفر</h3><p>سفر کی تفصیلات</p></div>
+    <div class="service" onclick="showPage('profile')"><div class="icon">👤</div><h3>میری پروفائل</h3><p>نام اور ای میل</p></div>
+    <div class="service" onclick="showPage('feedback')"><div class="icon">💬</div><h3>فیڈ بیک</h3><p>اپنی رائے دیں</p></div>
+    <div class="service" onclick="showPage('ziyarat')"><div class="icon">📍</div><h3>زیارات</h3><p>اہم مقامات</p></div>
+    <div class="service" onclick="showPage('offlineMap')"><div class="icon">🧭</div><h3>آف لائن گائیڈ</h3><p>انٹرنیٹ کے بغیر بنیادی سمتیں</p></div>
+    <div class="service" onclick="showPage('transport')"><div class="icon">🚕</div><h3>ٹرانسپورٹ / رائیڈ</h3><p>راستہ اور منزل منتخب کریں</p></div>
+    <div class="service" onclick="showPage('nearMe')"><div class="icon">📍</div><h3>میرے قریب</h3><p>قریب کی ضروری جگہیں تلاش کریں</p></div>
+    <div class="service" onclick="showPage('foodGuide')"><div class="icon">🍽️</div><h3>فوڈ گائیڈ</h3><p>کھانا، ریسٹورنٹس اور قیمتیں</p></div>
+    <div class="service" onclick="showPage('shopping')"><div class="icon">🛍️</div><h3>اسمارٹ شاپنگ</h3><p>مارکیٹ اور قیمت نوٹ کریں</p></div>
+    <div class="service" onclick="showPage('experiences')"><div class="icon">⭐</div><h3>مسافر تجربات</h3><p>اپنا تجربہ اور ریٹنگ محفوظ کریں</p></div>
+    <div class="service" onclick="showPage('wallet')"><div class="icon">💰</div><h3>عمرہ والٹ</h3><p>ریال اور PKR کا حساب</p></div>
+    <div class="service" onclick="showPage('emergency')"><div class="icon">🚨</div><h3>ایمرجنسی</h3><p>فوری مدد اور ضروری مقامات</p></div>
+    <div class="service" onclick="showPage('myHotel')"><div class="icon">🏨</div><h3>میرا ہوٹل</h3><p>ہوٹل محفوظ کریں اور واپس جائیں</p></div>
+    <div class="service" onclick="showPage('settings')"><div class="icon">⚙️</div><h3>ایپ سیٹنگز</h3><p>زبان، شہر، نماز اور اطلاعات</p></div>
+    <div class="service" onclick="showPage('reminders')"><div class="icon">⏰</div><h3>ریمائنڈرز</h3><p>اہم کام اور یاد دہانی</p></div>
+    <div class="service" onclick="showPage('cityMode')"><div class="icon">🕋</div><h3>مکہ / مدینہ موڈ</h3><p>شہر کے مطابق فوری سہولیات</p></div>
+    <div class="service" onclick="showPage('family')"><div class="icon">👨‍👩‍👧</div><h3>فیملی لوکیشن</h3><p>رضامندی کے ساتھ لوکیشن شیئرنگ</p></div>
+    <div class="service" onclick="showPage('wishIKnew')"><div class="icon">💡</div><h3>کاش مجھے پہلے معلوم ہوتا</h3><p>اہم عملی سفری مشورے</p></div>
+  </div>
+</section>
 </div>
 
-<div class="translation">
-اے اللہ! میں عمرہ کے لیے حاضر ہوں۔
+<div id="page" class="page">
+  <div class="page-header">
+    <button class="back" onclick="goHome()">‹</button>
+    <h2 id="pageTitle">تفصیل</h2>
+  </div>
+  <div id="pageContent" class="page-content"></div>
 </div>
 
-</div>
-
-
-<!-- STEP 2 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۲</span>
-تلبیہ
-</h2>
-
-<div class="arabic">
-
-لَبَّيْكَ اللَّهُمَّ لَبَّيْكَ،
-لَبَّيْكَ لَا شَرِيكَ لَكَ لَبَّيْكَ،
-إِنَّ الْحَمْدَ وَالنِّعْمَةَ لَكَ وَالْمُلْكَ،
-لَا شَرِيكَ لَكَ
-
-</div>
-
-<div class="translation">
-
-میں حاضر ہوں اے اللہ! میں حاضر ہوں۔
-تیرا کوئی شریک نہیں۔
-بے شک تمام تعریف، نعمت اور بادشاہی تیرے ہی لیے ہے۔
-تیرا کوئی شریک نہیں۔
-
-</div>
-
-<p>
-مکہ مکرمہ جاتے ہوئے کثرت سے تلبیہ پڑھیں۔
-</p>
-
-</div>
-
-
-<!-- STEP 3 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۳</span>
-طواف
-</h2>
-
-<p>
-مسجد الحرام پہنچ کر کعبہ شریف کا طواف کریں۔
-حجرِ اسود کی سمت سے طواف شروع کریں اور کعبہ کو اپنے بائیں جانب رکھیں۔
-</p>
-
-<div class="notice">
-طواف کے <strong>۷ چکر</strong> مکمل کرنے ہیں۔
-</div>
-
-</div>
-
-
-<!-- TAWAF COUNTER -->
-
-<div class="card counterBox">
-
-<h2>
-🕋 طواف کاؤنٹر
-</h2>
-
-<div id="tawaf" class="counter">
-۰
-</div>
-
-<button class="plus" onclick="addTawaf()">
-چکر مکمل ✓
-</button>
-
-<br>
-
-<button class="reset" onclick="resetTawaf()">
-دوبارہ شروع کریں
-</button>
-
-<p>
-کل ۷ چکر
-</p>
-
-</div>
-
-
-<!-- STEP 4 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۴</span>
-دو رکعت نماز
-</h2>
-
-<p>
-طواف مکمل ہونے کے بعد مناسب جگہ پر دو رکعت نماز ادا کریں۔
-رش یا لوگوں کے راستے میں رکاوٹ پیدا نہ کریں۔
-</p>
-
-</div>
-
-
-<!-- STEP 5 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۵</span>
-زمزم
-</h2>
-
-<p>
-نماز کے بعد زمزم پئیں اور اللہ تعالیٰ سے اپنی حاجات اور خیر کی دعا کریں۔
-</p>
-
-</div>
-
-
-<!-- STEP 6 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۶</span>
-صفا و مروہ کی سعی
-</h2>
-
-<p>
-سعی <strong>صفا</strong> سے شروع ہوتی ہے اور
-<strong>مروہ</strong> پر ختم ہوتی ہے۔
-کل ۷ چکر مکمل کریں۔
-</p>
-
-<div class="notice">
-
-صفا ← مروہ = ۱ چکر
-
-<br>
-
-مروہ ← صفا = ۲ چکر
-
-</div>
-
-</div>
-
-
-<!-- SAI COUNTER -->
-
-<div class="card counterBox">
-
-<h2>
-🚶 سعی کاؤنٹر
-</h2>
-
-<div id="sai" class="counter">
-۰
-</div>
-
-<button class="plus" onclick="addSai()">
-چکر مکمل ✓
-</button>
-
-<br>
-
-<button class="reset" onclick="resetSai()">
-دوبارہ شروع کریں
-</button>
-
-<p>
-کل ۷ چکر
-</p>
-
-</div>
-
-
-<!-- STEP 7 -->
-
-<div class="card step">
-
-<h2>
-<span class="number">۷</span>
-حلق یا قصر
-</h2>
-
-<p>
-سعی مکمل ہونے کے بعد مرد حلق یعنی سر منڈوائیں
-یا قصر یعنی بال چھوٹے کروائیں۔
-خواتین اپنے بالوں کے سروں سے تھوڑی مقدار کاٹیں۔
-</p>
-
-<div class="notice">
-
-الحمدللہ 🤲
-
-<br>
-
-اس مرحلے کے بعد عمرہ مکمل ہو جاتا ہے۔
-
-</div>
-
-</div>
-
-
-<!-- REMINDER -->
-
-<div class="card">
-
-<h2>
-🤲 اہم یاددہانی
-</h2>
-
-<p>
-عمرہ کے دوران ذکر، استغفار، درود شریف اور اپنی زبان میں دعائیں کریں۔
-</p>
-
-<p>
-اپنے والدین، اہلِ خانہ، دوستوں اور پوری امتِ مسلمہ کے لیے دعا کرنا نہ بھولیں۔
-</p>
-
-</div>
-
-
-</div>
-
-
-<footer>
-
-🕋 میرا عمرہ گائیڈ
-
-<br>
-
-Offline Friendly
-
-</footer>
-
+<nav class="bottom-nav" aria-label="Main navigation">
+  <button class="nav active" data-nav="home" onclick="goHome()"><span>⌂</span>Home</button>
+  <button class="nav" data-nav="discover" onclick="showPage('discoverHub')"><span>◈</span>Discover</button>
+  <button class="nav" data-nav="journey" onclick="showPage('journeyHub')"><span>✈</span>Journey</button>
+  <button class="nav" data-nav="plan" onclick="showPage('planHub')"><span>☑</span>Plan</button>
+  <button class="nav" data-nav="profile" onclick="showPage('profile')"><span id="bottomProfileIcon">👤</span>Profile</button>
+</nav>
 
 <script>
+function esc(v){
+  return String(v||"").replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
 
-const urduNumbers =
-["۰","۱","۲","۳","۴","۵","۶","۷"];
+function save(key,value){localStorage.setItem(key,JSON.stringify(value))}
+function load(key,fallback){
+  try{
+    const x=localStorage.getItem(key);
+    return x===null?fallback:JSON.parse(x);
+  }catch(e){return fallback}
+}
 
-let tawaf =
-Number(localStorage.getItem("tawafCount")) || 0;
+function setTripDate(){
+  const old=load("tripDate","");
+  const d=prompt("روانگی کی تاریخ درج کریں (مثال: 20-12-2026)",old);
+  if(d&&d.trim()){
+    save("tripDate",d.trim());
+    updateHome();
+  }
+}
+function saveWelcomeProfile(){
+  const name=document.getElementById("welcomeName").value.trim();
+  const email=document.getElementById("welcomeEmail").value.trim();
+  const contact=document.getElementById("welcomeContact").value.trim();
+  const country=document.getElementById("welcomeCountry").value;
+  if(!name||!email||!contact||!country){
+    alert("براہِ کرم نام، ای میل، رابطہ نمبر اور ملک درج کریں");
+    return;
+  }
+  save("profile",{name,email,contact,country});
+  document.getElementById("welcomeScreen").style.display="none";
+  document.getElementById("setupTravelScreen").style.display="block";
+}
+function saveSetupTravel(){
+  const t={
+    departure:document.getElementById("setupDeparture").value,
+    returnDate:document.getElementById("setupReturn").value,
+    flight:document.getElementById("setupFlight").value.trim(),
+    city:document.getElementById("setupCity").value.trim()
+  };
+  save("trip",t);
+  if(t.departure)save("tripDate",t.departure);
+  save("setupComplete",true);
+  document.getElementById("setupTravelScreen").style.display="none";
+  document.getElementById("home").style.display="block";
+  updateHome();initPremiumHome();
+}
+function skipSetupTravel(){
+  save("setupComplete",true);
+  document.getElementById("setupTravelScreen").style.display="none";
+  document.getElementById("home").style.display="block";
+  updateHome();initPremiumHome();
+}
+function updateHome(){refreshProfilePhoto();const profile = load("profile",{});
+const nameBox = document.getElementById("welcomeUserName");
+if(nameBox){
+  nameBox.innerText = profile.name ? "السلام علیکم، " + profile.name + " 👋" : "";
+}
+ const greet=document.getElementById("premiumGreeting");if(greet)greet.textContent=(premiumLanguage()==="en"?"Assalamu Alaikum":"السلام علیکم")+(profile.name?", "+profile.name:"");
+  const d=load("tripDate","");
+  document.getElementById("tripDateText").innerText=d?"روانگی: "+d:"روانگی کی تاریخ ابھی درج نہیں کی گئی";
 
-let sai =
-Number(localStorage.getItem("saiCount")) || 0;
+  const budget=Number(load("budget",0))||0;
+  const expenses=load("expenses",[]);
+  const spent=expenses.reduce((s,x)=>s+(Number(x.amount)||0),0);
+
+  document.getElementById("homeBudget").innerText="PKR "+budget.toLocaleString();
+  document.getElementById("homeSpent").innerText="PKR "+spent.toLocaleString();
+  document.getElementById("homeRemaining").innerText="PKR "+(budget-spent).toLocaleString();
+}
+
+const guideHTML=`
+<div class="step"><h3>1۔ احرام کی تیاری</h3><p>غسل اور صفائی کا اہتمام کریں۔ مرد احرام کی دو چادریں پہنیں اور خواتین شرعی باپردہ لباس میں رہیں۔</p></div>
+<div class="step"><h3>2۔ نیت اور تلبیہ</h3><p>میقات پر یا اس سے پہلے احرام باندھ کر عمرہ کی نیت کریں اور تلبیہ پڑھیں: لبیک اللہم لبیک، لبیک لا شریک لک لبیک، ان الحمد والنعمۃ لک والملک، لا شریک لک۔</p></div>
+<div class="step"><h3>3۔ مسجد الحرام</h3><p>مسجد الحرام میں ادب اور خشوع کے ساتھ داخل ہوں اور اللہ تعالیٰ سے دعا کریں۔</p></div>
+<div class="step"><h3>4۔ طواف</h3><p>حجرِ اسود کی سمت سے طواف شروع کریں اور خانہ کعبہ کے گرد سات چکر مکمل کریں۔</p></div>
+<div class="step"><h3>5۔ نماز</h3><p>طواف کے بعد مناسب جگہ پر دو رکعت نماز ادا کریں۔ مقامِ ابراہیم کے پیچھے جگہ ملے تو وہاں، ورنہ مسجد الحرام میں دوسری مناسب جگہ پڑھ سکتے ہیں۔</p></div>
+<div class="step"><h3>6۔ زمزم</h3><p>آبِ زمزم پئیں اور اللہ تعالیٰ سے خیر و برکت کی دعا کریں۔</p></div>
+<div class="step"><h3>7۔ سعی</h3><p>صفا سے مروہ کی طرف سعی شروع کریں۔ صفا سے مروہ ایک چکر ہے اور ساتواں چکر مروہ پر مکمل ہوگا۔</p></div>
+<div class="step"><h3>8۔ حلق یا قصر</h3><p>سعی کے بعد مرد حلق یا قصر کریں۔ خواتین اپنے بالوں کے سروں سے تھوڑی مقدار کاٹیں۔ اس کے بعد عمرہ مکمل ہو جاتا ہے۔</p></div>
+`;
+
+const duasHTML=`
+<div class="notice">دعاؤں کے اس حصے کو مزید مستند حوالوں کے ساتھ مرحلہ وار بڑھایا جا سکتا ہے۔</div>
+<div class="info"><h3>تلبیہ</h3><p><span class="arabic-text">لَبَّيْكَ اللَّهُمَّ لَبَّيْكَ، لَبَّيْكَ لَا شَرِيكَ لَكَ لَبَّيْكَ، إِنَّ الْحَمْدَ وَالنِّعْمَةَ لَكَ وَالْمُلْكَ، لَا شَرِيكَ لَكَ۔</span><br><br>ترجمہ: اے اللہ! میں حاضر ہوں، تیرا کوئی شریک نہیں، تمام تعریف، نعمت اور بادشاہی تیرے ہی لیے ہے۔</p></div>
+<div class="info"><h3>مسجد میں داخل ہونے کی دعا</h3><p><span class="arabic-text">اللَّهُمَّ افْتَحْ لِي أَبْوَابَ رَحْمَتِكَ</span><br><br>ترجمہ: اے اللہ! میرے لیے اپنی رحمت کے دروازے کھول دے۔</p></div>
+<div class="info"><h3>ربنا آتنا</h3><p><span class="arabic-text">رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ</span><br><br>ترجمہ: اے ہمارے رب! ہمیں دنیا میں بھلائی عطا فرما، آخرت میں بھلائی عطا فرما اور ہمیں آگ کے عذاب سے بچا۔</p></div>
+`;
+
+function checklistHTML(){
+  const items=["پاسپورٹ","ویزا","ائیر ٹکٹ","ہوٹل بکنگ","احرام","ضروری ادویات","موبائل چارجر","پاور بینک","سعودی ریال","ضروری دستاویزات کی نقول"];
+  const checked=load("checklist",{});
+  return items.map((x,i)=>`
+    <label class="check-item">
+      <input type="checkbox" ${checked[i]?"checked":""} onchange="toggleCheck(${i},this.checked)">
+      <span>${x}</span>
+    </label>`).join("");
+}
+function toggleCheck(i,v){
+  const c=load("checklist",{});
+  c[i]=v;save("checklist",c);
+}
+
+function tawafHTML(){
+  const t=Number(load("tawafCount",0));
+  const s=Number(load("saiCount",0));
+  return `
+  <div class="info counter">
+    <h3>طواف کاؤنٹر</h3>
+    <div class="counter-number" id="tawafNum">${t}</div>
+    <p>7 چکر مکمل کرنے ہیں</p>
+    <div class="counter-buttons">
+      <button class="main-btn" onclick="changeCounter('tawaf',1)">+ ایک چکر</button>
+      <button class="outline-btn" onclick="resetCounter('tawaf')">دوبارہ شروع</button>
+    </div>
+  </div>
+  <div class="info counter">
+    <h3>سعی کاؤنٹر</h3>
+    <div class="counter-number" id="saiNum">${s}</div>
+    <p>7 چکر مکمل کرنے ہیں</p>
+    <div class="counter-buttons">
+      <button class="main-btn" onclick="changeCounter('sai',1)">+ ایک چکر</button>
+      <button class="outline-btn" onclick="resetCounter('sai')">دوبارہ شروع</button>
+    </div>
+  </div>`;
+}
+function changeCounter(type,n){
+  const key=type==="tawaf"?"tawafCount":"saiCount";
+  let v=Number(load(key,0));
+  if(v<7)v+=n;
+  save(key,v);
+  document.getElementById(type==="tawaf"?"tawafNum":"saiNum").innerText=v;
+}
+function resetCounter(type){
+  const key=type==="tawaf"?"tawafCount":"saiCount";
+  save(key,0);
+  document.getElementById(type==="tawaf"?"tawafNum":"saiNum").innerText=0;
+}
+
+function expensesHTML(){
+  const budget=load("budget",0);
+  const arr=load("expenses",[]);
+  const list=arr.map((x,i)=>`
+    <div class="expense-item">
+      <div><b>${esc(x.title)}</b><br><span class="muted">${esc(x.date)}</span></div>
+      <div>PKR ${Number(x.amount).toLocaleString()} <button class="delete-btn" onclick="deleteExpense(${i})">×</button></div>
+    </div>`).join("");
+
+  return `
+  <div class="info">
+    <h3>میرا بجٹ</h3>
+    <div class="field"><label>کل بجٹ (PKR)</label><input id="budgetInput" type="number" value="${esc(budget)}"></div>
+    <button class="main-btn" onclick="saveBudget()">بجٹ محفوظ کریں</button>
+  </div>
+  <div class="info">
+    <h3>نیا خرچ شامل کریں</h3>
+    <div class="field"><label>خرچ کی تفصیل</label><input id="expenseTitle" placeholder="مثلاً کھانا، ٹیکسی، خریداری"></div>
+    <div class="field"><label>رقم</label><input id="expenseAmount" type="number" placeholder="PKR"></div>
+    <div class="field"><label>تاریخ</label><input id="expenseDate" type="date"></div>
+    <button class="main-btn" onclick="addExpense()">خرچ شامل کریں</button>
+  </div>
+  <div class="info"><h3>خرچ کی فہرست</h3>${list||"<p>ابھی کوئی خرچ درج نہیں کیا گیا۔</p>"}</div>`;
+}
+function saveBudget(){
+  save("budget",Number(document.getElementById("budgetInput").value)||0);
+  updateHome();alert("بجٹ محفوظ ہو گیا");
+}
+function addExpense(){
+  const title=document.getElementById("expenseTitle").value.trim();
+  const amount=Number(document.getElementById("expenseAmount").value);
+  const date=document.getElementById("expenseDate").value;
+  if(!title||!amount){alert("خرچ کی تفصیل اور رقم درج کریں");return}
+  const arr=load("expenses",[]);
+  arr.push({title,amount,date});
+  save("expenses",arr);updateHome();showPage("expenses");
+}
+function deleteExpense(i){
+  const arr=load("expenses",[]);
+  arr.splice(i,1);save("expenses",arr);updateHome();showPage("expenses");
+}
+
+function packageHTML(){
+  const p=load("package",{});
+  return `
+  <div class="info">
+    <h3>🧳 میرے عمرہ پیکیج کی تفصیلات</h3>
+
+    <div class="field">
+      <label>ٹریول ایجنسی / پیکیج</label>
+      <input id="pkgAgency" value="${esc(p.agency)}" placeholder="مثلاً ABC Travel & Tours">
+    </div>
+
+    <button class="outline-btn" onclick="openAgencyReviews()">
+      ⭐ انٹرنیٹ پر ایجنسی کی Rating / Reviews دیکھیں
+    </button>
+
+    <div class="notice" style="margin-top:10px">
+      ایجنسی کی آن لائن Rating اور Reviews اگر دستیاب ہوں تو Google Maps/Search میں کھل جائیں گے۔
+    </div>
+
+    <div class="field" style="margin-top:15px">
+      <label>🕋 مکہ ہوٹل</label>
+      <input id="pkgMakkah" value="${esc(p.makkah)}" placeholder="مکہ ہوٹل کا مکمل نام">
+    </div>
+
+    <button class="outline-btn" onclick="checkHotelDistance('makkah')">
+      📍 مسجد الحرام سے فاصلہ معلوم کریں
+    </button>
+    <div id="makkahDistance" class="notice" style="display:none;margin-top:10px"></div>
+
+    <div class="field" style="margin-top:15px">
+      <label>🕌 مدینہ ہوٹل</label>
+      <input id="pkgMadinah" value="${esc(p.madinah)}" placeholder="مدینہ ہوٹل کا مکمل نام">
+    </div>
+
+    <button class="outline-btn" onclick="checkHotelDistance('madinah')">
+      📍 مسجد نبوی ﷺ سے فاصلہ معلوم کریں
+    </button>
+    <div id="madinahDistance" class="notice" style="display:none;margin-top:10px"></div>
+
+    <div class="field" style="margin-top:15px">
+      <label>ائیر لائن / فلائٹ</label>
+      <input id="pkgFlight" value="${esc(p.flight)}">
+    </div>
+
+    <div class="field">
+      <label>پیکیج قیمت</label>
+      <input id="pkgPrice" type="number" value="${esc(p.price)}">
+    </div>
+
+    <button class="main-btn" onclick="savePackage()">محفوظ کریں</button>
+  </div>`;
+}
+
+function savePackage(){
+  save("package",{
+    agency:document.getElementById("pkgAgency").value.trim(),
+    makkah:document.getElementById("pkgMakkah").value.trim(),
+    madinah:document.getElementById("pkgMadinah").value.trim(),
+    flight:document.getElementById("pkgFlight").value.trim(),
+    price:document.getElementById("pkgPrice").value
+  });
+  alert("پیکیج کی تفصیل محفوظ ہو گئی");
+}
+
+function openAgencyReviews(){
+  const agency=document.getElementById("pkgAgency").value.trim();
+  if(!agency){
+    alert("پہلے ٹریول ایجنسی کا نام درج کریں۔");
+    return;
+  }
+
+  const url="https://www.google.com/maps/search/?api=1&query="
+    +encodeURIComponent(agency+" travel agency reviews");
+  window.location.href=url;
+}
+
+function degreesToRadians(degrees){
+  return degrees*Math.PI/180;
+}
+
+function distanceKm(lat1,lng1,lat2,lng2){
+  const earthRadius=6371;
+  const dLat=degreesToRadians(lat2-lat1);
+  const dLng=degreesToRadians(lng2-lng1);
+
+  const a=
+    Math.sin(dLat/2)*Math.sin(dLat/2)+
+    Math.cos(degreesToRadians(lat1))*
+    Math.cos(degreesToRadians(lat2))*
+    Math.sin(dLng/2)*Math.sin(dLng/2);
+
+  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  return earthRadius*c;
+}
+
+async function checkHotelDistance(city){
+  const isMakkah=city==="makkah";
+  const input=document.getElementById(isMakkah?"pkgMakkah":"pkgMadinah");
+  const resultBox=document.getElementById(isMakkah?"makkahDistance":"madinahDistance");
+  const hotel=input.value.trim();
+
+  if(!hotel){
+    alert(isMakkah?"پہلے مکہ ہوٹل کا نام درج کریں۔":"پہلے مدینہ ہوٹل کا نام درج کریں۔");
+    return;
+  }
+
+  resultBox.style.display="block";
+  resultBox.innerText="🔎 ہوٹل تلاش کیا جا رہا ہے...";
+
+  const target=isMakkah
+    ? {lat:21.4225,lng:39.8262,name:"مسجد الحرام"}
+    : {lat:24.4672,lng:39.6111,name:"مسجد نبوی ﷺ"};
+
+  const cityNames=isMakkah
+    ? ["Makkah","Mecca","مكة","مکہ"]
+    : ["Madinah","Medina","Al Madinah Al Munawwarah","المدينة المنورة","مدینہ"];
+
+  // Known fallback for a hotel that is difficult to locate by name in OSM/Nominatim.
+  // Address supplied/tested for Darul Salam, Madinah.
+  const normalized=hotel.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g,"");
+  const knownHotels=[
+    {
+      aliases:["darulsalam","darussalam","daralsalam","دارالسلام","دارالاسلام"],
+      city:"madinah",
+      lat:24.462890,
+      lng:39.601444,
+      label:"Darul Salam"
+    }
+  ];
+
+  const known=knownHotels.find(function(h){
+    return h.city===city && h.aliases.some(function(a){
+      return normalized.includes(a.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g,""));
+    });
+  });
+
+  if(known){
+    showHotelSearchResult(city,resultBox,known.lat,known.lng,known.label,target,"محفوظ شدہ درست مقام");
+    return;
+  }
+
+  // Try several useful name/city combinations instead of stopping at the first weak match.
+  const queries=[];
+  cityNames.forEach(function(cityName){
+    queries.push(hotel+", "+cityName+", Saudi Arabia");
+    queries.push(hotel+" Hotel, "+cityName+", Saudi Arabia");
+    queries.push("Hotel "+hotel+", "+cityName+", Saudi Arabia");
+  });
+  queries.push(hotel+", Saudi Arabia");
+
+  try{
+    let allResults=[];
+
+    for(const q of queries){
+      const response=await fetch(
+        "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&limit=10&countrycodes=sa&q="+encodeURIComponent(q),
+        {headers:{"Accept":"application/json"}}
+      );
+
+      if(response.ok){
+        const batch=await response.json();
+        if(Array.isArray(batch)) allResults=allResults.concat(batch);
+      }
+    }
+
+    // Remove duplicate coordinates.
+    const seen={};
+    allResults=allResults.filter(function(x){
+      const key=Number(x.lat).toFixed(5)+","+Number(x.lon).toFixed(5);
+      if(seen[key]) return false;
+      seen[key]=true;
+      return true;
+    });
+
+    // Reject results implausibly far from the selected holy city.
+    const nearby=allResults.filter(function(x){
+      const d=distanceKm(Number(x.lat),Number(x.lon),target.lat,target.lng);
+      return Number.isFinite(d) && d<=35;
+    });
+
+    if(!nearby.length){
+      showHotelSearchFallback(city,resultBox,hotel);
+      return;
+    }
+
+    // Rank by how well the returned name resembles what the user typed,
+    // while also preferring sensible proximity to the selected city.
+    const words=hotel.toLowerCase().split(/\s+/).filter(function(w){return w.length>1;});
+
+    nearby.forEach(function(x){
+      const display=(x.display_name||"").toLowerCase();
+      const named=JSON.stringify(x.namedetails||{}).toLowerCase();
+      let score=0;
+
+      words.forEach(function(w){
+        if(display.includes(w)) score+=12;
+        if(named.includes(w)) score+=8;
+      });
+
+      const type=((x.type||"")+" "+(x.class||"")).toLowerCase();
+      if(type.includes("hotel")||type.includes("tourism")) score+=8;
+
+      const d=distanceKm(Number(x.lat),Number(x.lon),target.lat,target.lng);
+      score-=Math.min(d,20)*0.15;
+      x._score=score;
+      x._distance=d;
+    });
+
+    nearby.sort(function(a,b){return b._score-a._score;});
+    const best=nearby[0];
+
+    // If the result does not resemble the entered hotel name enough,
+    // don't silently choose a wrong nearby place.
+    if(!best || best._score<7){
+      showHotelSearchFallback(city,resultBox,hotel);
+      return;
+    }
+
+    const label=(best.namedetails && (best.namedetails.name || best.namedetails["name:en"]))
+      || (best.display_name ? best.display_name.split(",")[0] : hotel);
+
+    showHotelSearchResult(
+      city,
+      resultBox,
+      Number(best.lat),
+      Number(best.lon),
+      label,
+      target,
+      "OpenStreetMap search"
+    );
+
+  }catch(e){
+    showHotelSearchFallback(city,resultBox,hotel,true);
+  }
+}
+
+function showHotelSearchResult(city,resultBox,hotelLat,hotelLng,label,target,source){
+  const isMakkah=city==="makkah";
+  const km=distanceKm(hotelLat,hotelLng,target.lat,target.lng);
+  const meters=Math.round(km*1000);
+  const distanceText=meters<1000
+    ? meters.toLocaleString()+" میٹر"
+    : km.toFixed(2)+" کلومیٹر";
+
+  window[isMakkah?"makkahHotelCoords":"madinahHotelCoords"]={
+    lat:hotelLat,
+    lng:hotelLng
+  };
+
+  resultBox.innerHTML=
+    "📍 <b>"+esc(label)+"</b><br>"+
+    target.name+" سے سیدھا فاصلہ تقریباً <b>"+distanceText+"</b> ہے۔"+
+    "<br><span class='muted'>اصل walking/road distance مختلف ہو سکتا ہے۔</span>"+
+    "<br><span class='muted'>مقام: "+esc(source)+"</span>"+
+    "<button class='outline-btn' onclick=\"openHotelRoute('"+city+"')\">🚶 Google Maps میں walking route</button>"+
+    "<button class='outline-btn' onclick=\"openHotelSearch('"+city+"')\">🔎 Google Maps میں نام verify کریں</button>";
+}
+
+function showHotelSearchFallback(city,resultBox,hotel,networkError){
+  const heading=networkError
+    ?"ہوٹل سرچ سروس سے رابطہ نہیں ہو سکا۔"
+    :"اس نام سے قابلِ اعتماد ہوٹل خودکار طور پر نہیں ملا۔";
+
+  resultBox.innerHTML=
+    heading+
+    "<br><span class='muted'>غلط ہوٹل منتخب کرنے کے بجائے Google Maps میں نام verify کریں، یا نیچے نقشے پر صحیح جگہ منتخب کریں۔</span>"+
+    "<button class='outline-btn' onclick=\"openHotelSearch('"+city+"')\">🗺️ Google Maps میں ہوٹل تلاش کریں</button>"+
+    "<button class='main-btn' onclick=\"showHotelPicker('"+city+"')\">📌 نقشے پر ہوٹل منتخب کریں</button>"+
+    "<div id='"+city+"HotelPicker' style='height:280px;margin-top:12px;border-radius:14px;overflow:hidden;display:none'></div>";
+}
+
+let hotelPickerMap=null;
+function showHotelPicker(city){
+  const box=document.getElementById(city+"HotelPicker");
+  if(!box||typeof L==="undefined"){alert("نقشہ لوڈ نہیں ہو سکا۔ انٹرنیٹ چیک کریں۔");return;}
+  box.style.display="block";
+  if(hotelPickerMap){hotelPickerMap.remove();hotelPickerMap=null;}
+  const isMakkah=city==="makkah";
+  const center=isMakkah?[21.4225,39.8262]:[24.4672,39.6111];
+  hotelPickerMap=L.map(box).setView(center,14);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(hotelPickerMap);
+  let pin=null;
+  hotelPickerMap.on("click",function(e){
+    if(pin)hotelPickerMap.removeLayer(pin);
+    pin=L.marker(e.latlng).addTo(hotelPickerMap);
+    const coords={lat:e.latlng.lat,lng:e.latlng.lng};
+    if(isMakkah)makkahHotelCoords=coords;else madinahHotelCoords=coords;
+    showSelectedHotelDistance(city,coords);
+  });
+  setTimeout(function(){hotelPickerMap.invalidateSize();},100);
+}
+function showSelectedHotelDistance(city,coords){
+  const isMakkah=city==="makkah";
+  const target=isMakkah?{lat:21.4225,lng:39.8262,name:"مسجد الحرام"}:{lat:24.4672,lng:39.6111,name:"مسجد نبوی ﷺ"};
+  const km=distanceKm(coords.lat,coords.lng,target.lat,target.lng);
+  const meters=Math.round(km*1000);
+  const distanceText=meters<1000?meters.toLocaleString()+" میٹر":km.toFixed(2)+" کلومیٹر";
+  const resultBox=document.getElementById(isMakkah?"makkahDistance":"madinahDistance");
+  resultBox.innerHTML="📌 منتخب ہوٹل کی جگہ<br>"+target.name+" سے سیدھا فاصلہ تقریباً <b>"+distanceText+"</b> ہے۔"+
+  "<br><span class='muted'>اصل walking/road distance مختلف ہو سکتا ہے۔</span>"+
+  "<button class='outline-btn' onclick=\"openHotelRoute('"+city+"')\">🚶 Google Maps میں walking route</button>";
+}
+
+function openHotelSearch(city){
+  const isMakkah=city==="makkah";
+  const input=document.getElementById(isMakkah?"pkgMakkah":"pkgMadinah");
+  const cityName=isMakkah?"Makkah Saudi Arabia":"Madinah Saudi Arabia";
+  window.location.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(input.value.trim()+", "+cityName);
+}
+
+let makkahHotelCoords=null;
+let madinahHotelCoords=null;
+
+function openHotelRoute(city){
+  const isMakkah=city==="makkah";
+  const coords=isMakkah?makkahHotelCoords:madinahHotelCoords;
+  const input=document.getElementById(isMakkah?"pkgMakkah":"pkgMadinah");
+  const target=isMakkah?"Masjid al-Haram":"Al Masjid an Nabawi";
+
+  let origin=input.value.trim();
+  if(coords){
+    origin=coords.lat+","+coords.lng;
+  }
+
+  const url="https://www.google.com/maps/dir/?api=1&origin="
+    +encodeURIComponent(origin)
+    +"&destination="+encodeURIComponent(target)
+    +"&travelmode=walking";
+
+  window.location.href=url;
+}
+
+function tripHTML(){
+  const t=load("trip",{});
+  return `
+  <div class="info">
+    <div class="field"><label>روانگی کی تاریخ</label><input id="tripDeparture" type="date" value="${esc(t.departure)}"></div>
+    <div class="field"><label>واپسی کی تاریخ</label><input id="tripReturn" type="date" value="${esc(t.returnDate)}"></div>
+    <div class="field"><label>فلائٹ نمبر</label><input id="tripFlight" value="${esc(t.flight)}"></div>
+    <div class="field"><label>روانگی کا شہر</label><input id="tripCity" value="${esc(t.city)}"></div>
+    <button class="main-btn" onclick="saveTrip()">سفر محفوظ کریں</button>
+  </div>`;
+}
+function saveTrip(){
+  const t={
+    departure:document.getElementById("tripDeparture").value,
+    returnDate:document.getElementById("tripReturn").value,
+    flight:document.getElementById("tripFlight").value,
+    city:document.getElementById("tripCity").value
+  };
+  save("trip",t);
+  if(t.departure)save("tripDate",t.departure);
+  updateHome();alert("سفر کی تفصیل محفوظ ہو گئی");
+}
+
+function profileHTML(){
+  const p=load("profile",{});
+  return `
+  <div class="info">
+    <h3>میری پروفائل</h3>
+    <div class="field"><label>نام</label><input id="profileName" value="${esc(p.name)}" placeholder="اپنا نام درج کریں"></div>
+    <div class="field"><label>ای میل</label><input id="profileEmail" type="email" value="${esc(p.email)}" placeholder="example@email.com"></div>
+    <div class="field"><label>رابطہ نمبر</label><input id="profileContact" type="tel" value="${esc(p.contact)}"></div>
+    <div class="field"><label>ملک</label><input id="profileCountry" value="${esc(p.country)}"></div>
+    <div class="profile-photo-picker"><label>📷 پروفائل تصویر منتخب کریں</label><input type="file" accept="image/*" onchange="saveProfilePhoto(this)"><div id="profilePhotoPreview"></div></div>
+    <button class="main-btn" onclick="saveProfile()">محفوظ کریں</button>
+    <div class="notice" style="margin-top:12px">فی الحال نام اور ای میل صرف آپ کے موبائل میں محفوظ ہوں گے۔ Online registration اگلے مرحلے میں شامل ہوگی۔</div>
+  </div>`;
+}
+function refreshProfilePhoto(){
+ const photo=load('profilePhoto','');
+ const avatar=document.getElementById('dashboardAvatar');
+ if(avatar)avatar.innerHTML=photo?'<img alt="Profile" src="'+photo+'">':'👤';
+ const preview=document.getElementById('profilePhotoPreview');
+ if(preview)preview.innerHTML=photo?'<img alt="Profile photo" src="'+photo+'" style="width:75px;height:75px;object-fit:cover;border-radius:50%;margin-top:8px">':'';
+ const bottom=document.getElementById('bottomProfileIcon');
+ if(bottom)bottom.innerHTML=photo?'<img class="bottom-profile-photo" alt="Profile" src="'+photo+'">':'👤';
+}
+function saveProfilePhoto(input){
+ const file=input.files&&input.files[0];if(!file)return;
+ if(!file.type.startsWith('image/')){alert('صرف تصویر منتخب کریں');return;}
+ const reader=new FileReader();reader.onload=function(){
+  const img=new Image();img.onload=function(){
+   const canvas=document.createElement('canvas'),size=256,scale=Math.min(size/img.width,size/img.height,1);
+   canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+   canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+   try{save('profilePhoto',canvas.toDataURL('image/jpeg',.76));refreshProfilePhoto();}catch(e){alert('تصویر محفوظ نہیں ہوئی');}
+  };img.src=reader.result;
+ };reader.readAsDataURL(file);
+}
+function saveProfile(){
+  save("profile",{
+    name:document.getElementById("profileName").value.trim(),
+    email:document.getElementById("profileEmail").value.trim(),
+    contact:document.getElementById("profileContact").value.trim(),
+    country:document.getElementById("profileCountry").value.trim()
+  });
+  updateHome();
+  alert("پروفائل محفوظ ہو گئی");
+}
+
+function feedbackHTML(){
+  const old=load("feedback","");
+  return `
+  <div class="info">
+    <h3>آپ کی رائے ہمارے لیے اہم ہے</h3>
+    <div class="field"><label>فیڈ بیک</label><textarea id="feedbackText" placeholder="اپنی رائے یا تجویز لکھیں">${esc(old)}</textarea></div>
+    <button class="main-btn" onclick="saveFeedback()">فیڈ بیک محفوظ کریں</button>
+    <div class="notice" style="margin-top:12px">فی الحال Feedback موبائل میں محفوظ ہوگا۔ آپ تک براہِ راست پہنچانے کے لیے اگلے مرحلے میں online system جوڑا جائے گا۔</div>
+  </div>`;
+}
+function saveFeedback(){
+  save("feedback",document.getElementById("feedbackText").value);
+  alert("فیڈ بیک محفوظ ہو گیا");
+}
+
+const ziyaratHTML=`
+<div class="info">
+  <h2>🕋 مکہ مکرمہ کے اہم مقامات</h2>
+  <h3>مسجد الحرام اور خانہ کعبہ</h3>
+  <p>مسلمانوں کا قبلہ اور عمرہ کے بنیادی اعمال طواف اور سعی کا مرکزی مقام۔</p>
+</div>
+
+<div class="info">
+  <h3>⛰️ غارِ حرا — جبل النور</h3>
+  <p>یہ وہ مقام ہے جہاں نبی کریم ﷺ پر پہلی وحی نازل ہوئی۔</p>
+</div>
+
+<div class="info">
+  <h3>⛰️ غارِ ثور</h3>
+  <p>ہجرتِ مدینہ کے موقع پر نبی کریم ﷺ اور حضرت ابوبکر صدیقؓ نے یہاں قیام فرمایا۔</p>
+</div>
+
+<div class="info">
+  <h3>📍 منیٰ</h3>
+  <p>حج کے اہم مناسک سے وابستہ تاریخی اور مقدس مقام۔</p>
+</div>
+
+<div class="info">
+  <h3>📍 میدانِ عرفات</h3>
+  <p>حج کے رکنِ اعظم وقوفِ عرفہ کا مقام۔ یہاں جبلِ رحمت بھی واقع ہے۔</p>
+</div>
+
+<div class="info">
+  <h3>📍 مزدلفہ</h3>
+  <p>حجاج عرفات سے واپسی پر یہاں قیام کرتے ہیں۔</p>
+</div>
+
+<div class="info">
+  <h2>🕌 مدینہ منورہ کے اہم مقامات</h2>
+  <h3>مسجد نبوی ﷺ</h3>
+  <p>نبی کریم ﷺ کی مسجد اور مسلمانوں کے لیے انتہائی مقدس مقام۔</p>
+</div>
+
+<div class="info">
+  <h3>🕌 مسجد قباء</h3>
+  <p>اسلام کی پہلی مسجد کے طور پر مشہور تاریخی مسجد۔</p>
+</div>
+
+<div class="info">
+  <h3>🕌 مسجد قبلتین</h3>
+  <p>قبلہ کی تبدیلی کے تاریخی واقعے سے منسوب مسجد۔</p>
+</div>
+
+<div class="info">
+  <h3>⛰️ جبل اُحد</h3>
+  <p>غزوۂ اُحد کا تاریخی مقام۔ قریب ہی شہدائے اُحد کا علاقہ ہے۔</p>
+</div>
+
+<div class="notice">
+  نوٹ: یہ مقامات زیارت اور اسلامی تاریخ کو سمجھنے کے لیے ہیں۔ ان کی زیارت عمرہ کے ارکان یا لازمی اعمال میں شامل نہیں۔
+</div>
+`;
+  const offlineMapHTML=`
+<div class="notice">یہ انٹرنیٹ کے بغیر بنیادی سمت نما رہنمائی ہے؛ GPS/live road map نہیں۔</div>
+<div class="info"><h2>🕋 مکہ مکرمہ</h2>
+<div class="step"><h3>🕋 مسجد الحرام</h3><p>مرکزی مقام — طواف، زمزم اور صفا مروہ۔</p></div>
+<div class="step"><h3>⛰️ جبل النور / غارِ حرا</h3><p>مسجد الحرام کے شمال مشرقی علاقے کی سمت۔</p></div>
+<div class="step"><h3>⛰️ غارِ ثور</h3><p>مسجد الحرام کے جنوب کی سمت۔</p></div>
+<div class="step"><h3>📍 منیٰ → مزدلفہ → عرفات</h3><p>مکہ کے مشرقی/جنوب مشرقی جانب حج کے اہم مقامات۔</p></div></div>
+<div class="info"><h2>🕌 مدینہ منورہ</h2>
+<div class="step"><h3>🕌 مسجد نبوی ﷺ</h3><p>مدینہ کا مرکزی reference point۔</p></div>
+<div class="step"><h3>⛰️ جبل اُحد</h3><p>مسجد نبوی ﷺ کے شمال کی سمت۔</p></div>
+<div class="step"><h3>🕌 مسجد قباء</h3><p>مسجد نبوی ﷺ کے جنوب کی سمت۔</p></div>
+<div class="step"><h3>🕌 مسجد قبلتین</h3><p>مسجد نبوی ﷺ کے شمال مغربی علاقے کی سمت۔</p></div></div>
+`;
+ const transportHTML=`
+<div class="info">
+  <h2>🚕 ٹرانسپورٹ / رائیڈ</h2>
+  <p>اپنی موجودہ جگہ سے منزل منتخب کریں اور راستہ دیکھیں۔</p>
+</div>
+
+<div class="info" style="padding:0;overflow:hidden;">
+
+<div id="transportMap" style="
+  width:100%;
+  height:300px;
+  background:#eaf5f1;">
+</div>
+
+<div id="mapStatus" style="
+  padding:10px 15px;
+  text-align:center;
+  color:#6c7773;
+  background:#f8fbfa;">
+  📍 موجودہ مقام حاصل کرکے سفر شروع کریں
+</div>
+
+  <div style="padding:16px;">
+
+    <div class="field">
+      <label>📍 کہاں سے؟</label>
+      <button class="outline-btn"
+              onclick="getCurrentLocation()"
+              style="margin-top:0;">
+        <span id="currentLocationText">میری موجودہ لوکیشن</span>
+      </button>
+    </div>
+
+    <div style="text-align:center;font-size:25px;color:#0b6b53;">↓</div>
+
+    <div class="field">
+      <label>🎯 کہاں جانا ہے؟</label>
+      <input
+        id="destinationInput"
+        type="text"
+        placeholder="مثلاً Masjid al-Haram"
+        oninput="setDestinationFromInput()">
+    </div>
+
+    <button class="main-btn" onclick="findRide()">
+      🗺️ راستہ دکھائیں
+    </button>
+
+  </div>
+</div>
+`;
+  const nearMeHTML=`
+<div class="info">
+  <h2>📍 میرے قریب</h2>
+  <p>فوری ضرورت کی جگہیں تلاش کریں۔ کھانے، خریداری اور ٹرانسپورٹ کے لیے Home پر الگ مکمل سہولیات موجود ہیں۔</p>
+</div>
+<div class="service-grid">
+  <div class="service" onclick="openNearMe('pharmacy')">
+    <div class="icon">💊</div><h3>فارمیسی</h3><p>قریب کی فارمیسی تلاش کریں</p>
+  </div>
+  <div class="service" onclick="openNearMe('hospital')">
+    <div class="icon">🏥</div><h3>ہسپتال</h3><p>قریب کے ہسپتال تلاش کریں</p>
+  </div>
+  <div class="service" onclick="openNearMe('ATM')">
+    <div class="icon">🏧</div><h3>ATM / بینک</h3><p>قریب کے ATM اور بینک</p>
+  </div>
+</div>
+`;
+  function openNearMe(type){
+  const queryMap={
+    restaurants:"restaurants near me",
+    pharmacy:"pharmacy near me",
+    hospital:"hospital near me",
+    shopping:"shopping near me",
+    ATM:"ATM near me",
+    transport:"taxi near me"
+  };
+
+  const query=queryMap[type]||type;
+  const url="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(query);
+  window.location.href=url;
+}
+  let transportMap = null;
+let currentLocationMarker = null;
+let destinationMarker = null;
+
+function initTransportMap(){
+  const mapBox = document.getElementById("transportMap");
+
+  if(!mapBox || typeof L === "undefined"){
+    return;
+  }
+
+  if(transportMap){
+    transportMap.remove();
+    transportMap = null;
+  }
+
+  transportMap = L.map("transportMap").setView([21.4225, 39.8262], 13);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap"
+  }).addTo(transportMap);
+  transportMap.on("click", function(e){
+
+  const destinationLat = e.latlng.lat;
+  const destinationLng = e.latlng.lng;
+
+  destination = destinationLat + "," + destinationLng;
+
+  if(destinationMarker){
+    transportMap.removeLayer(destinationMarker);
+  }
+
+  destinationMarker = L.circleMarker(
+    [destinationLat, destinationLng],
+    {
+      radius:10,
+      color:"#c79a42",
+      fillColor:"#c79a42",
+      fillOpacity:1
+    }
+  ).addTo(transportMap);
+
+  const input = document.getElementById("destinationInput");
+  if(input){
+    input.value = "نقشے پر منتخب مقام";
+  }
+
+  const status = document.getElementById("mapStatus");
+  if(status){
+    status.innerText = "🎯 منزل منتخب ہوگئی";
+  }
+});
+}
+  let currentLat = null;
+let currentLng = null;
+let destination = "";
+
+async function getCurrentLocation(){
+ try{
+  const p=await requestCoordinates();currentLat=p.lat;currentLng=p.lng;
+  const text=document.getElementById('currentLocationText');if(text)text.innerText='موجودہ مقام حاصل ہوگیا ✓';
+  if(transportMap){transportMap.setView([currentLat,currentLng],16);if(currentLocationMarker)transportMap.removeLayer(currentLocationMarker);
+   currentLocationMarker=L.circleMarker([currentLat,currentLng],{radius:10,color:'#075541',fillColor:'#0b6b53',fillOpacity:1}).addTo(transportMap);}
+  const status=document.getElementById('mapStatus');if(status)status.innerText='📍 موجودہ مقام حاصل ہوگیا — اب اپنی منزل درج کریں';
+ }catch(e){alert('لوکیشن حاصل نہیں ہوسکی۔ براہ کرم Location/GPS کی اجازت دیں۔');}
+}
+function setDestinationFromInput(){
+  const input = document.getElementById("destinationInput");
+
+  if(input){
+    destination = input.value.trim();
+
+    const status = document.getElementById("mapStatus");
+    if(status && destination){
+      status.innerText = "منزل: " + destination;
+    }
+  }
+}
+function setDestination(){
+  const place = prompt("آپ کہاں جانا چاہتے ہیں؟ مثال: Masjid al-Haram");
+
+  if(place && place.trim() !== ""){
+    destination = place.trim();
+
+    const text = document.getElementById("destinationText");
+    if(text){
+      text.innerText = destination;
+    }
+  }
+}
+
+function findRide(){
+  if(!destination){
+    alert("پہلے اپنی منزل درج کریں۔");
+    return;
+  }
+
+  let url;
+
+  if(currentLat !== null && currentLng !== null){
+    url = "https://www.google.com/maps/dir/?api=1&origin="
+      + currentLat + "," + currentLng
+      + "&destination=" + encodeURIComponent(destination)
+      + "&travelmode=driving";
+  }else{
+    url = "https://www.google.com/maps/dir/?api=1&destination="
+      + encodeURIComponent(destination)
+      + "&travelmode=driving";
+  }
+
+  window.location.href = url;
+}
+
+function foodGuideHTML(){
+  const profile=load("profile",{});
+  const country=profile.country||"آپ کا ملک";
+  const reports=load("foodReports",[]);
+  const list=reports.slice().reverse().map(x=>`
+    <div class="expense-item">
+      <div><b>${esc(x.place)}</b><br><span class="muted">${esc(x.item)} • ${esc(x.city)} • ${esc(x.date)}</span></div>
+      <div>${Number(x.price||0).toLocaleString()} SAR</div>
+    </div>`).join("");
+  return `
+  <div class="info">
+    <h3>🍽️ فوڈ گائیڈ</h3>
+    <p>${esc(country)} سے آنے والے مسافروں کے لیے کھانے کی تلاش، قیمت نوٹ کرنے اور اپنے تجربات محفوظ کرنے کی جگہ۔</p>
+    <button class="main-btn" onclick="openNearMe('restaurants')">📍 میرے قریب ریسٹورنٹس</button>
+    <button class="outline-btn" onclick="openFoodSearch('Pakistani food')">پاکستانی کھانا تلاش کریں</button>
+    <button class="outline-btn" onclick="openFoodSearch('Indian food')">انڈین کھانا تلاش کریں</button>
+    <button class="outline-btn" onclick="openFoodSearch('Arabic food')">عربی کھانا تلاش کریں</button>
+  </div>
+  <div class="info">
+    <h3>💵 کھانے کی قیمت رپورٹ کریں</h3>
+    <div class="field"><label>شہر</label><select id="foodCity"><option>Makkah</option><option>Madinah</option></select></div>
+    <div class="field"><label>ریسٹورنٹ</label><input id="foodPlace" placeholder="ریسٹورنٹ کا نام"></div>
+    <div class="field"><label>کھانا</label><input id="foodItem" placeholder="مثلاً بریانی"></div>
+    <div class="field"><label>قیمت (SAR)</label><input id="foodPrice" type="number"></div>
+    <button class="main-btn" onclick="saveFoodReport()">قیمت محفوظ کریں</button>
+  </div>
+  <div class="info"><h3>میری محفوظ قیمتیں</h3>${list||"<p>ابھی کوئی قیمت محفوظ نہیں۔</p>"}</div>`;
+}
+function openFoodSearch(food){
+  window.location.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(food+" near me");
+}
+function saveFoodReport(){
+  const place=document.getElementById("foodPlace").value.trim();
+  const item=document.getElementById("foodItem").value.trim();
+  const price=Number(document.getElementById("foodPrice").value);
+  if(!place||!item||!price){alert("ریسٹورنٹ، کھانا اور قیمت درج کریں۔");return}
+  const arr=load("foodReports",[]);
+  arr.push({city:document.getElementById("foodCity").value,place,item,price,date:new Date().toLocaleDateString()});
+  save("foodReports",arr);showPage("foodGuide");
+}
+
+function shoppingHTML(){
+  const arr=load("shoppingReports",[]);
+  const list=arr.slice().reverse().map(x=>`
+    <div class="expense-item">
+      <div><b>${esc(x.item)}</b><br><span class="muted">${esc(x.shop)} • ${esc(x.city)}</span></div>
+      <div>${Number(x.price||0).toLocaleString()} SAR</div>
+    </div>`).join("");
+  return `
+  <div class="info">
+    <h3>🛍️ اسمارٹ شاپنگ</h3>
+    <p>عبایا، کھجور، عطر، تحائف اور دوسری چیزوں کی دکانیں تلاش کریں اور دیکھی گئی قیمت محفوظ کریں۔</p>
+    <button class="main-btn" onclick="openNearMe('shopping')">📍 قریب کی مارکیٹ</button>
+  </div>
+  <div class="info">
+    <div class="field"><label>شہر</label><select id="shopCity"><option>Makkah</option><option>Madinah</option></select></div>
+    <div class="field"><label>چیز</label><input id="shopItem" placeholder="مثلاً عطر"></div>
+    <div class="field"><label>دکان / مارکیٹ</label><input id="shopName"></div>
+    <div class="field"><label>قیمت (SAR)</label><input id="shopPrice" type="number"></div>
+    <button class="main-btn" onclick="saveShoppingReport()">قیمت محفوظ کریں</button>
+  </div>
+  <div class="info"><h3>محفوظ قیمتیں</h3>${list||"<p>ابھی کوئی قیمت محفوظ نہیں۔</p>"}</div>`;
+}
+function saveShoppingReport(){
+  const item=document.getElementById("shopItem").value.trim();
+  const shop=document.getElementById("shopName").value.trim();
+  const price=Number(document.getElementById("shopPrice").value);
+  if(!item||!shop||!price){alert("چیز، دکان اور قیمت درج کریں۔");return}
+  const arr=load("shoppingReports",[]);
+  arr.push({city:document.getElementById("shopCity").value,item,shop,price,date:new Date().toLocaleDateString()});
+  save("shoppingReports",arr);showPage("shopping");
+}
+
+function experiencesHTML(){
+  const arr=load("travelerExperiences",[]);
+  const list=arr.slice().reverse().map(x=>`
+    <div class="info"><h3>${"⭐".repeat(Number(x.rating)||1)} ${esc(x.place)}</h3>
+    <p>${esc(x.comment)}<br><span class="muted">${esc(x.type)} • ${esc(x.date)}</span></p></div>`).join("");
+  return `
+  <div class="info">
+    <h3>⭐ مسافر تجربات</h3>
+    <div class="field"><label>جگہ کی قسم</label><select id="expType"><option>Hotel</option><option>Restaurant</option><option>Shop</option><option>Transport</option><option>Ziyarat</option></select></div>
+    <div class="field"><label>نام</label><input id="expPlace"></div>
+    <div class="field"><label>ریٹنگ</label><select id="expRating"><option value="5">5 ⭐</option><option value="4">4 ⭐</option><option value="3">3 ⭐</option><option value="2">2 ⭐</option><option value="1">1 ⭐</option></select></div>
+    <div class="field"><label>آپ کا تجربہ / مشورہ</label><textarea id="expComment"></textarea></div>
+    <button class="main-btn" onclick="saveExperience()">تجربہ محفوظ کریں</button>
+    <div class="notice" style="margin-top:12px">فی الحال تجربات اسی موبائل میں محفوظ ہوں گے۔ دوسرے مسافروں کے ساتھ live sharing کے لیے بعد میں online database جوڑا جائے گا۔</div>
+  </div>${list}`;
+}
+function saveExperience(){
+  const place=document.getElementById("expPlace").value.trim();
+  const comment=document.getElementById("expComment").value.trim();
+  if(!place||!comment){alert("نام اور تجربہ درج کریں۔");return}
+  const arr=load("travelerExperiences",[]);
+  arr.push({type:document.getElementById("expType").value,place,rating:document.getElementById("expRating").value,comment,date:new Date().toLocaleDateString()});
+  save("travelerExperiences",arr);showPage("experiences");
+}
+
+function walletHTML(){
+  const rate=Number(load("sarPkrRate",0))||0;
+  const sar=Number(load("walletSar",0))||0;
+  return `
+  <div class="info">
+    <h3>💰 عمرہ والٹ</h3>
+    <div class="field"><label>میرے پاس سعودی ریال (SAR)</label><input id="walletSar" type="number" value="${esc(sar)}"></div>
+    <div class="field"><label>1 SAR = کتنے PKR؟</label><input id="walletRate" type="number" step="0.01" value="${esc(rate)}"></div>
+    <button class="main-btn" onclick="saveWallet()">محفوظ / حساب کریں</button>
+    <div class="notice" style="margin-top:12px">${rate?("تقریباً PKR "+(sar*rate).toLocaleString()):"اپنا موجودہ exchange rate درج کریں۔"}</div>
+    <button class="outline-btn" onclick="openExchangeRate()">🌐 آج کا SAR/PKR rate تلاش کریں</button>
+  </div>`;
+}
+function saveWallet(){
+  save("walletSar",Number(document.getElementById("walletSar").value)||0);
+  save("sarPkrRate",Number(document.getElementById("walletRate").value)||0);
+  showPage("wallet");
+}
+function openExchangeRate(){window.location.href="https://www.google.com/search?q="+encodeURIComponent("1 SAR to PKR");}
+
+function emergencyHTML(){
+  return `
+  <div class="notice">فوری خطرے کی صورت میں مقامی emergency services سے رابطہ کریں۔ نمبر استعمال کرنے سے پہلے موجودہ سرکاری معلومات سے تصدیق کریں۔</div>
+  <div class="info">
+    <h3>🚨 فوری مدد</h3>
+    <button class="main-btn" onclick="openNearMe('hospital')">🏥 قریب ترین ہسپتال</button>
+    <button class="outline-btn" onclick="openEmergencySearch('police station near me')">👮 قریب ترین پولیس اسٹیشن</button>
+    <button class="outline-btn" onclick="openEmergencySearch('Saudi Red Crescent near me')">🚑 قریب ترین طبی امداد</button>
+    <button class="outline-btn" onclick="getCurrentLocation()">📍 میری موجودہ لوکیشن حاصل کریں</button>
+  </div>`;
+}
+function openEmergencySearch(q){window.location.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);}
+
+function myHotelHTML(){
+  const h=load("myHotel",{});
+  return `
+  <div class="info">
+    <h3>🏨 میرا ہوٹل</h3>
+    <div class="field"><label>شہر</label><select id="hotelCity"><option ${h.city==="Makkah"?"selected":""}>Makkah</option><option ${h.city==="Madinah"?"selected":""}>Madinah</option></select></div>
+    <div class="field"><label>ہوٹل کا نام</label><input id="hotelName" value="${esc(h.name)}"></div>
+    <div class="field"><label>Room / Floor (اختیاری)</label><input id="hotelRoom" value="${esc(h.room)}"></div>
+    <button class="main-btn" onclick="saveMyHotel()">ہوٹل محفوظ کریں</button>
+    <button class="outline-btn" onclick="returnToHotel()">🗺️ مجھے میرے ہوٹل واپس لے جائیں</button>
+  </div>`;
+}
+function saveMyHotel(){
+  const name=document.getElementById("hotelName").value.trim();
+  if(!name){alert("ہوٹل کا نام درج کریں۔");return}
+  save("myHotel",{city:document.getElementById("hotelCity").value,name,room:document.getElementById("hotelRoom").value.trim()});
+  alert("ہوٹل محفوظ ہو گیا");
+}
+function returnToHotel(){
+  const h=load("myHotel",{});
+  if(!h.name){alert("پہلے اپنا ہوٹل محفوظ کریں۔");return}
+  window.location.href="https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(h.name+", "+h.city+", Saudi Arabia")+"&travelmode=walking";
+}
+
+function remindersHTML(){
+  const arr=load("reminders",[]);
+  const list=arr.map((x,i)=>`
+    <div class="expense-item"><div><b>${esc(x.title)}</b><br><span class="muted">${esc(formatReminderWhen(x.when))}</span></div>
+    <button class="delete-btn" onclick="deleteReminder(${i})">×</button></div>`).join("");
+  return `
+  <div class="info">
+    <h3>⏰ ریمائنڈرز</h3>
+    <div class="field"><label>یاد دہانی</label><input id="reminderTitle" placeholder="مثلاً پاسپورٹ ساتھ رکھنا"></div>
+    <div class="field"><label>تاریخ / وقت</label><input id="reminderWhen" type="datetime-local"></div>
+    <button class="main-btn" onclick="saveReminder()">🔔 ریمائنڈر محفوظ کریں</button>
+    <div class="notice" style="margin-top:12px">Android notification صرف اسی صورت میں آئے گی جب نصب شدہ APK میں reminder service اور notification permission فعال ہوں۔</div>
+  </div>
+  <div class="info"><h3>میری یاد دہانیاں</h3>${list||"<p>ابھی کوئی reminder نہیں۔</p>"}</div>`;
+}
+
+function formatReminderWhen(when){
+  if(!when)return "وقت درج نہیں";
+  const d=new Date(when);
+  if(Number.isNaN(d.getTime()))return when;
+  return d.toLocaleString();
+}
+
+function saveReminder(){
+  const title=document.getElementById("reminderTitle").value.trim();
+  const when=document.getElementById("reminderWhen").value;
+  if(!title){alert("یاد دہانی لکھیں۔");return;}
+  if(!when){alert("ریمائنڈر کی تاریخ اور وقت منتخب کریں۔");return;}
+
+  const triggerAt=new Date(when).getTime();
+  if(!Number.isFinite(triggerAt)||triggerAt<=Date.now()){
+    alert("ریمائنڈر کے لیے آنے والا وقت منتخب کریں۔");
+    return;
+  }
+
+  const id=Date.now();
+  const arr=load("reminders",[]);
+  arr.push({id,title,when});
+  save("reminders",arr);
+
+  if(window.AndroidReminder && typeof AndroidReminder.scheduleReminder==="function"){
+    AndroidReminder.scheduleReminder(title,triggerAt,id % 2147483647);
+    alert("ریمائنڈر محفوظ ہوگیا اور Android کو شیڈول کرنے کی درخواست بھیج دی گئی۔ اطلاع آنے کے لیے اجازت اور فعال Android service ضروری ہیں۔");
+  }else{
+    alert("ریمائنڈر App میں محفوظ ہوگیا، لیکن Android alarm service دستیاب نہیں۔ نئی APK build/install کے بعد notification کام کرے گی۔");
+  }
+  showPage("reminders");
+}
+
+function deleteReminder(i){
+  const arr=load("reminders",[]);
+  const item=arr[i];
+  if(item && item.id && window.AndroidReminder && typeof AndroidReminder.cancelReminder==="function"){
+    AndroidReminder.cancelReminder(item.id % 2147483647);
+  }
+  arr.splice(i,1);
+  save("reminders",arr);
+  showPage("reminders");
+}
+
+function cityModeHTML(){
+  const mode=load("cityMode","Makkah");
+  return `
+  <div class="info">
+    <h3>🕋 مکہ / مدینہ موڈ</h3>
+    <div class="field"><label>موجودہ شہر</label><select id="cityModeSelect"><option ${mode==="Makkah"?"selected":""}>Makkah</option><option ${mode==="Madinah"?"selected":""}>Madinah</option></select></div>
+    <button class="main-btn" onclick="saveCityMode()">موڈ محفوظ کریں</button>
+    <button class="outline-btn" onclick="openCityEssentials('mosque')">🕌 اہم مسجد</button>
+    <button class="outline-btn" onclick="openCityEssentials('food')">🍽️ قریب کھانا</button>
+    <button class="outline-btn" onclick="openCityEssentials('pharmacy')">💊 قریب فارمیسی</button>
+  </div>`;
+}
+function saveCityMode(){save("cityMode",document.getElementById("cityModeSelect").value);alert("شہر کا موڈ محفوظ ہو گیا");}
+function openCityEssentials(type){
+  const city=document.getElementById("cityModeSelect")?document.getElementById("cityModeSelect").value:load("cityMode","Makkah");
+  let q=type==="mosque"?(city==="Makkah"?"Masjid al-Haram":"Al Masjid an Nabawi"):(type+" near me");
+  window.location.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);
+}
+
+function familyHTML(){
+  const f=load("familyLocation",{name:"",link:""});
+  return `
+  <div class="info">
+    <h3>👨‍👩‍👧 فیملی لوکیشن</h3>
+    <p>والدہ یا کسی family member کی رضامندی سے Google Maps کی Live Location Sharing یہاں محفوظ کریں۔</p>
+    <div class="notice">پہلے ان کے موبائل میں Google Maps → Profile → Location sharing سے آپ کے ساتھ live location share کریں۔ GPS اور Internet آن ہونا ضروری ہے۔</div>
+    <div class="field"><label>Family member کا نام</label><input id="familyName" value="${esc(f.name)}" placeholder="مثلاً والدہ"></div>
+    <div class="field"><label>Google Maps Live Location link</label><input id="familyLink" value="${esc(f.link)}" placeholder="ان کے فون سے share کیا گیا link یہاں paste کریں"></div>
+    <button class="main-btn" onclick="saveFamilyLocation()">محفوظ کریں</button>
+    <button class="outline-btn" onclick="openFamilyLocation()">📍 Live Location دیکھیں</button>
+    <button class="outline-btn" onclick="shareMyLocation()">📤 میری موجودہ لوکیشن شیئر کریں</button>
+    <div class="notice" style="margin-top:12px">یہ feature صرف رضامندی سے استعمال کریں۔ Live location وہی وقت تک نظر آئے گی جتنی دیر دوسرے فون سے sharing فعال ہے۔ App کسی شخص کو خفیہ طور پر track نہیں کرتی۔</div>
+  </div>`;
+}
+function saveFamilyLocation(){
+  const name=document.getElementById("familyName").value.trim();
+  const link=document.getElementById("familyLink").value.trim();
+  if(!name||!link){alert("نام اور Google Maps Live Location link درج کریں۔");return;}
+  if(!(link.startsWith("https://")||link.startsWith("http://"))){alert("درست location link paste کریں۔");return;}
+  save("familyLocation",{name,link});
+  alert("فیملی لوکیشن محفوظ ہو گئی");
+}
+function openFamilyLocation(){
+  const f=load("familyLocation",{});
+  if(!f.link){alert("پہلے Live Location link محفوظ کریں۔");return;}
+  window.location.href=f.link;
+}
+async function shareMyLocation(){
+ try{const p=await requestCoordinates(),url='https://www.google.com/maps?q='+p.lat+','+p.lng,msg='میری موجودہ لوکیشن: '+url;
+  if(navigator.share){try{await navigator.share({title:'Umrah Companion Location',text:msg,url:url});return;}catch(e){}}
+  window.location.href='https://wa.me/?text='+encodeURIComponent(msg);
+ }catch(e){alert('Location/GPS کی اجازت دیں۔');}
+}
+
+function wishIKnewHTML(){
+  const tips=load("wishTips",[]);
+  const list=tips.slice().reverse().map(x=>`<div class="step"><h3>💡 سفری مشورہ</h3><p>${esc(x)}</p></div>`).join("");
+  return `
+  <div class="info">
+    <h3>💡 کاش مجھے پہلے معلوم ہوتا</h3>
+    <p>وہ عملی بات لکھیں جو آپ سمجھتے ہیں اگلے عمرہ مسافر کے کام آئے گی۔</p>
+    <div class="field"><textarea id="wishTip" placeholder="اپنا مشورہ لکھیں"></textarea></div>
+    <button class="main-btn" onclick="saveWishTip()">مشورہ محفوظ کریں</button>
+    <div class="notice" style="margin-top:12px">فی الحال tips اسی موبائل میں محفوظ ہوں گی۔ Community sharing بعد میں online system سے ہوگی۔</div>
+  </div>${list}`;
+}
+function saveWishTip(){
+  const tip=document.getElementById("wishTip").value.trim();
+  if(!tip){alert("مشورہ لکھیں۔");return}
+  const arr=load("wishTips",[]);arr.push(tip);save("wishTips",arr);showPage("wishIKnew");
+}
+
+let homeScrollPosition=0;
+
+/* Each main tab opens its own functional hub, with links to original screens. */
+function hubTile(icon,title,desc,target){return `<button type="button" class="hub-tile" onclick="showPage('${target}')"><span class="hub-ico">${icon}</span><strong>${title}</strong><small>${desc}</small></button>`}
+function discoverHubHTML(){return `<div class="hub-head"><h2>✨ دریافت کریں</h2><p>عمرہ، عبادات، رہنمائی اور سفر کی تمام ضروری سہولیات ایک جگہ۔</p></div><div class="hub-grid">`+
+ hubTile('🕋','عمرہ گائیڈ','مکمل طریقہ','guide')+hubTile('🤲','دعائیں','مسنون دعائیں','duas')+hubTile('🔄','طواف و سعی','سات چکر کا کاؤنٹر','tawaf')+hubTile('📍','زیارات','مکہ اور مدینہ','ziyarat')+hubTile('🧭','آف لائن گائیڈ','بنیادی معلومات','offlineMap')+hubTile('🍽️','فوڈ گائیڈ','کھانا اور قیمتیں','foodGuide')+hubTile('🛍️','شاپنگ','خریداری کی رہنمائی','shopping')+hubTile('🚕','ٹرانسپورٹ','راستہ اور رائیڈ','transport')+hubTile('📍','میرے قریب','ضروری مقامات','nearMe')+hubTile('🚨','ایمرجنسی','فوری مدد','emergency')+`</div>`}
+function journeyHubHTML(){const t=load('trip',{}),p=load('profile',{});return `<div class="hub-head"><h2>✈️ میرا سفر</h2><p>${esc(p.name||'عمرہ مسافر')}، آپ کے مقدس سفر کی تمام معلومات یہاں محفوظ رہیں گی۔</p></div><div class="hub-info">📅 روانگی: <b>${esc(t.departure||'ابھی درج نہیں')}</b><br>🛬 واپسی: <b>${esc(t.returnDate||'ابھی درج نہیں')}</b><br>✈️ فلائٹ: <b>${esc(t.flight||'ابھی درج نہیں')}</b></div><div class="hub-grid">`+
+ hubTile('✈️','سفر کی تفصیل','تاریخ اور فلائٹ','trip')+hubTile('🏨','میرا ہوٹل','ہوٹل کا مقام','myHotel')+hubTile('🧳','عمرہ پیکیج','ٹکٹ اور رہائش','package')+hubTile('💰','اخراجات','بجٹ اور خرچ','expenses')+hubTile('📍','زیارات','اہم مقامات','ziyarat')+hubTile('👨‍👩‍👧','فیملی','لوکیشن شیئرنگ','family')+`</div>`}
+function planHubHTML(){return `<div class="hub-head"><h2>📋 سفر کی تیاری</h2><p>عمرہ سے پہلے اپنے تمام ضروری کام ایک ایک کر کے مکمل کریں۔</p></div><div class="hub-grid">`+
+ hubTile('☑️','چیک لسٹ','سامان اور دستاویزات','checklist')+hubTile('🕋','عمرہ گائیڈ','مناسک کی تیاری','guide')+hubTile('⏰','ریمائنڈرز','اہم کام یاد رکھیں','reminders')+hubTile('🧳','میرا پیکیج','ویزہ، ٹکٹ، ہوٹل','package')+hubTile('💳','عمرہ والٹ','کرنسی کا حساب','wallet')+hubTile('💡','سفری مشورے','تجربات سے سیکھیں','wishIKnew')+`</div>`}
+
+function setActiveNav(key){document.querySelectorAll('.bottom-nav .nav').forEach(b=>b.classList.toggle('active',b.dataset.nav===key));}
+function goToServices(){goHome();setActiveNav('discover');setTimeout(()=>document.getElementById('allServicesSection')?.scrollIntoView({behavior:'smooth',block:'start'}),50);}
 
 
-function showCounters(){
+function showPage(key){
+  if(document.getElementById("home").style.display!=="none") homeScrollPosition=window.scrollY||0;
+  let title="",html="";
+  if(key==="qiblaCompass"){title="Qibla · قبلہ";html=qiblaHTML()}
+  else if(key==="discoverHub"){title="Discover · دریافت کریں";html=discoverHubHTML()}
+  else if(key==="journeyHub"){title="My Journey · میرا سفر";html=journeyHubHTML()}
+  else if(key==="planHub"){title="Plan · سفر کی تیاری";html=planHubHTML()}
+  else if(key==="translator"){title="🎙️ Voice Translator";html=translatorHTML()}
+  else if(key==="guide"){title="عمرہ گائیڈ";html=guideHTML}
+  else if(key==="duas"){title="دعائیں";html=duasHTML}
+  else if(key==="tawaf"){title="طواف و سعی";html=tawafHTML()}
+  else if(key==="checklist"){title="میری تیاری";html=checklistHTML()}
+  else if(key==="package"){title="میرا پیکیج";html=packageHTML()}
+  else if(key==="expenses"){title="اخراجات";html=expensesHTML()}
+  else if(key==="trip"){title="میرا سفر";html=tripHTML()}
+  else if(key==="profile"){title="میری پروفائل";html=profileHTML()}
+  else if(key==="feedback"){title="فیڈ بیک";html=feedbackHTML()}
+  else if(key==="ziyarat"){title="زیارات";html=ziyaratHTML}
+    else if(key==="offlineMap"){title="آف لائن گائیڈ";html=offlineMapHTML}
+  else if(key==="transport"){title="ٹرانسپورٹ / رائیڈ";html=transportHTML}
+else if(key==="nearMe"){title="میرے قریب";html=nearMeHTML}
+else if(key==="foodGuide"){title="فوڈ گائیڈ";html=foodGuideHTML()}
+else if(key==="shopping"){title="اسمارٹ شاپنگ";html=shoppingHTML()}
+else if(key==="experiences"){title="مسافر تجربات";html=experiencesHTML()}
+else if(key==="wallet"){title="عمرہ والٹ";html=walletHTML()}
+else if(key==="emergency"){title="ایمرجنسی";html=emergencyHTML()}
+else if(key==="myHotel"){title="میرا ہوٹل";html=myHotelHTML()}
+else if(key==="reminders"){title="ریمائنڈرز";html=remindersHTML()}
+else if(key==="settings"){title="ایپ سیٹنگز";html=prayerSettingsHTML()}
+else if(key==="cityMode"){title="مکہ / مدینہ موڈ";html=cityModeHTML()}
+else if(key==="family"){title="فیملی لوکیشن";html=familyHTML()}
+else if(key==="wishIKnew"){title="کاش مجھے پہلے معلوم ہوتا";html=wishIKnewHTML()}
+else return;
+ 
 
-document.getElementById("tawaf").innerText =
-urduNumbers[tawaf];
+  setActiveNav(({journeyHub:"journey",planHub:"plan",discoverHub:"discover",trip:"journey",checklist:"plan",profile:"profile"})[key]||"discover");
+  document.getElementById("home").style.display="none";
+  document.getElementById("page").classList.add("active");
+  document.getElementById("pageTitle").innerText=title;
+  document.getElementById("pageContent").innerHTML=html;
+  if(key === "transport"){
+  setTimeout(function(){
+    initTransportMap();
+  }, 200);
+}
+  window.scrollTo(0,0);
+  if(key==="translator")trRenderHistory();
+}
 
-document.getElementById("sai").innerText =
-urduNumbers[sai];
-
+function goHome(){
+  setActiveNav("home");
+  document.getElementById("page").classList.remove("active");
+  document.getElementById("home").style.display="block";
+  updateHome();
+  setTimeout(function(){window.scrollTo(0,homeScrollPosition);},0);
 }
 
 
-function addTawaf(){
 
-if(tawaf < 7){
-
-tawaf++;
-
-localStorage.setItem(
-"tawafCount",
-tawaf
-);
-
-showCounters();
-
-if(tawaf === 7){
-
-alert(
-"ماشاءاللہ! آپ کے طواف کے ۷ چکر مکمل ہو گئے۔"
-);
-
+/* Prayer data is fetched online; never present placeholders as real times. */
+const PREMIUM_VERSES=[
+ {ar:'وَقُل رَّبِّ زِدْنِي عِلْمًا',ur:'اے میرے رب! میرے علم میں اضافہ فرما۔',en:'My Lord, increase me in knowledge.',ref:'20:114'},
+ {ar:'فَاذْكُرُونِي أَذْكُرْكُمْ',ur:'تم مجھے یاد کرو، میں تمہیں یاد کروں گا۔',en:'Remember Me; I will remember you.',ref:'2:152'},
+ {ar:'وَأَتِمُّوا الْحَجَّ وَالْعُمْرَةَ لِلَّهِ',ur:'حج اور عمرہ اللہ کے لیے پورے کرو۔',en:'Complete the Hajj and Umrah for Allah.',ref:'2:196'},
+ {ar:'إِنَّ مَعَ الْعُسْرِ يُسْرًا',ur:'بے شک مشکل کے ساتھ آسانی ہے۔',en:'Indeed, with hardship comes ease.',ref:'94:6'}
+];
+let premiumVerseIndex=0,prayerSchedule=null,prayerTimer=null,verseTimer=null;
+const PRAYER_NAMES={Fajr:'فجر',Dhuhr:'ظہر',Asr:'عصر',Maghrib:'مغرب',Isha:'عشاء'};
+const PRAYER_EN={Fajr:'Fajr',Dhuhr:'Dhuhr',Asr:'Asr',Maghrib:'Maghrib',Isha:'Isha'};
+function premiumLanguage(){return load('umrahPreferences',{}).language==='en'?'en':'ur'}
+function renderVerse(){
+ const v=PREMIUM_VERSES[premiumVerseIndex],en=premiumLanguage()==='en';
+ document.getElementById('verseArabic').textContent=v.ar;
+ document.getElementById('verseTranslation').textContent=en?v.en:v.ur;
+ document.getElementById('verseReference').textContent='Quran '+v.ref;
+ document.getElementById('verseSectionTitle').textContent=en?'Verse of the day':'آج کی آیت';
+ document.getElementById('verseDots').innerHTML=PREMIUM_VERSES.map((_,i)=>`<button aria-label="آیت ${i+1}" class="${i===premiumVerseIndex?'active':''}" onclick="premiumVerseIndex=${i};renderVerse()"></button>`).join('');
+}
+function parsePrayerTime(t){const m=String(t||'').match(/^(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):null}
+function prayerMethod(){const m=load('umrahPreferences',{}).method;return m==='Karachi'?1:m==='MWL'?3:4}
+function prayerCity(){return load('prayerCity',{city:'Makkah',country:'Saudi Arabia',zone:'Asia/Riyadh'})}
+let prayerCoordinates=null,prayerRequestId=0,prayerDateKey='',prayerLastLocation='';
+function choosePrayerCity(){
+ const old=prayerCity(),city=prompt('شہر کا نام لکھیں (مثلاً Makkah, Madinah, Karachi)',old.city);
+ if(!city||!city.trim())return;
+ const country=prompt('ملک کا نام لکھیں (مثلاً Saudi Arabia, Pakistan)',old.country);
+ if(!country||!country.trim())return;
+ const prefs=load('umrahPreferences',{});prefs.prayerMode='manual';save('umrahPreferences',prefs);
+ save('prayerCity',{city:city.trim(),country:country.trim()});prayerCoordinates=null;loadPrayerTimes();
+}
+async function enableAutoPrayerLocation(){
+ const prefs=load('umrahPreferences',{});prefs.prayerMode='automatic';save('umrahPreferences',prefs);
+ const loc=document.getElementById('prayerLocationText');if(loc)loc.textContent='مقام تلاش ہو رہا ہے…';
+ await loadPrayerTimes();
+ if(!prayerCoordinates)alert('موبائل کی Location آن کریں اور Umrah Companion کو Location permission دیں۔ اگر اجازت کے باوجود GPS نہ چلے تو Android App میں Location Bridge/Permissions چیک کرنا ہوں گی۔');
+}
+function cityParts(zone){
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:zone||'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+ const x={};parts.forEach(p=>{x[p.type]=p.value});return x;
+}
+function cityNow(zone){const x=cityParts(zone);return {hours:Number(x.hour),minutes:Number(x.minute),seconds:Number(x.second),date:x.year+'-'+x.month+'-'+x.day}}
+function timeText(v){const m=parsePrayerTime(v);if(m===null)return '--:--';return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function renderPrayer(){
+ const en=premiumLanguage()==='en';const location=prayerCity();
+ document.getElementById('prayerLocationText').textContent=(prayerLastLocation||location.city);
+ document.getElementById('nextPrayerLabel').textContent=en?'NEXT PRAYER':'اگلی نماز';
+ if(!prayerSchedule){document.getElementById('nextPrayerName').textContent=en?'Prayer times unavailable':'نماز کے اوقات دستیاب نہیں';document.getElementById('nextPrayerClock').textContent='--:--';document.getElementById('nextPrayerCountdown').textContent=en?'Check internet and location permission':'انٹرنیٹ یا لوکیشن کی اجازت چیک کریں';document.getElementById('prayerStrip').innerHTML='';return;}
+ const {timings,zone}=prayerSchedule,now=cityNow(zone),minutes=now.hours*60+now.minutes+now.seconds/60;
+ const keys=['Fajr','Dhuhr','Asr','Maghrib','Isha'];let next=keys.find(k=>parsePrayerTime(timings[k])!==null&&parsePrayerTime(timings[k])>minutes),tomorrow=false;
+ if(!next){next='Fajr';tomorrow=true;}
+ const target=parsePrayerTime(timings[next]);if(target===null)return;
+ const remaining=Math.max(0,Math.ceil((tomorrow?1440:0)+target-minutes));
+ document.getElementById('nextPrayerName').textContent=(en?PRAYER_EN:PRAYER_NAMES)[next];
+ document.getElementById('nextPrayerClock').textContent=timeText(timings[next]);
+ document.getElementById('nextPrayerCountdown').textContent=(en?'Starts in ':'باقی وقت: ')+Math.floor(remaining/60)+'h '+String(remaining%60).padStart(2,'0')+'m';
+ document.getElementById('prayerStrip').innerHTML=keys.map(k=>`<div class="prayer-chip ${k===next?'current':''}"><div class="prayer-label">${(en?PRAYER_EN:PRAYER_NAMES)[k]}</div><div class="prayer-time">${timeText(timings[k])}</div></div>`).join('');
+}
+let nativeLocationRequest=null;
+window.onNativeLocation=function(lat,lng){if(nativeLocationRequest){nativeLocationRequest.resolve({lat:Number(lat),lng:Number(lng)});nativeLocationRequest=null;}};
+window.onNativeLocationError=function(message){if(nativeLocationRequest){nativeLocationRequest.reject(Error(message));nativeLocationRequest=null;}};
+function requestCoordinates(){return new Promise((resolve,reject)=>{
+ if(window.AndroidLocation&&typeof AndroidLocation.requestLocation==='function'){
+  if(nativeLocationRequest){nativeLocationRequest.reject(Error('New location request'));}
+  nativeLocationRequest={resolve,reject};AndroidLocation.requestLocation();
+  setTimeout(()=>{if(nativeLocationRequest&&nativeLocationRequest.resolve===resolve){nativeLocationRequest=null;reject(Error('GPS timeout'));}},16000);
+  return;
+ }
+ if(!navigator.geolocation){reject(Error('GPS unavailable'));return;}
+ navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude}),reject,{enableHighAccuracy:true,timeout:14000,maximumAge:120000});
+})}
+async function loadPrayerTimes(){
+ const request=++prayerRequestId,prefs=load('umrahPreferences',{}),c=prayerCity();prayerSchedule=null;renderPrayer();
+ let url='',location=c.city;
+ if(prefs.prayerMode!=='manual'){
+  try{prayerCoordinates=await requestCoordinates();location=c.city;url='https://api.aladhan.com/v1/timings?latitude='+encodeURIComponent(prayerCoordinates.lat)+'&longitude='+encodeURIComponent(prayerCoordinates.lng)+'&method='+prayerMethod();}
+  catch(e){prayerCoordinates=null;location=c.city;}
+ }
+ if(!url)url='https://api.aladhan.com/v1/timingsByCity?city='+encodeURIComponent(c.city)+'&country='+encodeURIComponent(c.country)+'&method='+prayerMethod();
+ try{const r=await fetch(url);if(!r.ok)throw Error('network');const d=await r.json();if(d.code!==200||!d.data||!d.data.timings||!d.data.meta)throw Error('data');
+  if(request!==prayerRequestId)return;
+  prayerLastLocation=location;prayerSchedule={timings:d.data.timings,zone:d.data.meta.timezone};
+  if(prayerCoordinates){
+   fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+prayerCoordinates.lat+'&longitude='+prayerCoordinates.lng+'&localityLanguage=en')
+    .then(r=>r.ok?r.json():null).then(g=>{if(g&&request===prayerRequestId){prayerLastLocation=g.city||g.locality||g.principalSubdivision||location;renderPrayer();}}).catch(()=>{});
+  }prayerDateKey=cityNow(prayerSchedule.zone).date;renderPrayer();schedulePrayerAlerts();
+ }catch(e){if(request===prayerRequestId){prayerLastLocation=location;renderPrayer();}}
+}
+function nativeReminderAvailable(){return !!(window.AndroidReminder&&typeof AndroidReminder.scheduleReminder==='function')}
+function schedulePrayerAlerts(){
+ if(!prayerSchedule||!nativeReminderAvailable())return;
+ const prefs=load('umrahPreferences',{}),prayers=prefs.prayers||{},keys=['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+ keys.forEach((key,i)=>{
+  const id=91001+i;AndroidReminder.cancelReminder(id);
+  if(!prefs.notifications||prayers[key.toLowerCase()]===false)return;
+  const raw=prayerSchedule.timings[key],minutes=parsePrayerTime(raw);if(minutes===null)return;
+  const date=cityNow(prayerSchedule.zone).date;
+  // The API's timezone can differ from the device timezone. Convert city wall time to epoch using Intl.
+  const when=epochForCityTime(date,minutes,prayerSchedule.zone)-(prayers.advance?15*60000:0);
+  if(Number.isFinite(when)&&when>Date.now())AndroidReminder.scheduleReminder((premiumLanguage()==='en'?PRAYER_EN:PRAYER_NAMES)[key]+' — '+(prayers.advance?'15 min before':'Prayer time'),when,id);
+ });
+}
+function epochForCityTime(date,minutes,zone){
+ const [y,m,d]=date.split('-').map(Number),utc=Date.UTC(y,m-1,d,Math.floor(minutes/60),minutes%60);
+ let guess=utc;
+ for(let i=0;i<3;i++){
+  const p=cityPartsAt(guess,zone),actual=Date.UTC(Number(p.year),Number(p.month)-1,Number(p.day),Number(p.hour),Number(p.minute));
+  guess+=utc-actual;
+ }
+ return guess;
+}
+function cityPartsAt(ms,zone){const x={};new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(p=>{x[p.type]=p.value});return x;}
+function bearingToKaaba(lat,lng){
+ const toRad=Math.PI/180,lat1=lat*toRad,lat2=21.4225*toRad,dLon=(39.8262-lng)*toRad;
+ const y=Math.sin(dLon)*Math.cos(lat2),x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+ return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+let qiblaHeadingHandler=null;
+function qiblaHTML(){return `<div class="info qibla-panel"><h3>🧭 Qibla Direction</h3><p>اپنی موجودہ جگہ سے قبلہ کی سمت معلوم کریں۔</p><div class="qibla-compass"><div class="qibla-needle" id="qiblaNeedle">➤<span class="qibla-kaaba">🕋</span></div><span class="qibla-north">N</span></div><div id="qiblaResult" class="qibla-result">Location کی اجازت دے کر سمت معلوم کریں۔</div><button class="main-btn" onclick="startQiblaCompass()">📍 Find Qibla</button><button class="outline-btn" onclick="stopQiblaCompass();goHome()">واپس Dashboard</button><p class="muted" style="font-size:14px;margin-top:12px">Compass sensor دستیاب ہو تو تیر حرکت کرے گا۔ ورنہ شمال سے زاویہ دکھایا جائے گا۔ GPS اور sensor کی accuracy مختلف ہو سکتی ہے۔</p></div>`}
+function stopQiblaCompass(){if(qiblaHeadingHandler){window.removeEventListener('deviceorientationabsolute',qiblaHeadingHandler);window.removeEventListener('deviceorientation',qiblaHeadingHandler);qiblaHeadingHandler=null;}}
+function openQibla(){stopQiblaCompass();showPage('qiblaCompass');}
+async function startQiblaCompass(){
+ const box=document.getElementById('qiblaResult'),needle=document.getElementById('qiblaNeedle');if(!box||!needle)return;
+ box.textContent='GPS سے مقام حاصل کیا جا رہا ہے…';
+ try{
+  const p=await requestCoordinates(),bearing=bearingToKaaba(p.lat,p.lng);
+  box.textContent='شمال سے قبلہ کا زاویہ: '+bearing.toFixed(1)+'°';
+  needle.style.transform='rotate('+(bearing-90)+'deg)';
+  stopQiblaCompass();
+  if(typeof DeviceOrientationEvent!=='undefined'){
+   if(typeof DeviceOrientationEvent.requestPermission==='function'){
+    const permission=await DeviceOrientationEvent.requestPermission();if(permission!=='granted')return;
+   }
+   qiblaHeadingHandler=function(e){
+    let heading=typeof e.webkitCompassHeading==='number'?e.webkitCompassHeading:(e.absolute&&typeof e.alpha==='number'?(360-e.alpha)%360:null);
+    if(heading===null)return;
+    needle.style.transform='rotate('+(bearing-heading-90)+'deg)';
+    box.textContent='قبلہ: '+bearing.toFixed(1)+'° شمال سے • Live compass';
+   };
+   window.addEventListener('deviceorientationabsolute',qiblaHeadingHandler);
+   window.addEventListener('deviceorientation',qiblaHeadingHandler);
+  }
+ }catch(e){box.textContent='GPS دستیاب نہیں۔ موبائل کی Location آن کریں اور App کو اجازت دیں۔';}
+}
+function prayerSettingsHTML(){const p=load('umrahPreferences',{}),c=prayerCity();return `<div class="info"><h3>⚙️ نماز اور زبان کی سیٹنگز</h3>
+ <div class="field"><label>زبان (Dashboard کی منتخب معلومات)</label><select id="prefLanguage"><option value="ur" ${p.language!=='en'?'selected':''}>اردو</option><option value="en" ${p.language==='en'?'selected':''}>English</option></select></div>
+ <div class="field"><label>نماز کے اوقات</label><select id="prefPrayerMode"><option value="manual" ${p.prayerMode==='manual'?'selected':''}>شہر دستی طور پر</option><option value="automatic" ${p.prayerMode!=='manual'?'selected':''}>GPS سے خودکار</option></select></div>
+ <div class="field"><label>Calculation Method</label><select id="prefMethod"><option value="UmmAlQura" ${p.method==='UmmAlQura'?'selected':''}>Umm Al-Qura</option><option value="Karachi" ${p.method==='Karachi'?'selected':''}>Karachi</option><option value="MWL" ${p.method==='MWL'?'selected':''}>Muslim World League</option></select></div>
+ <label class="check-item"><input id="prefNotifications" type="checkbox" ${p.notifications?'checked':''}> نماز کے وقت Android Notification</label>
+ <label class="check-item"><input id="prefAdvance" type="checkbox" ${p.prayers&&p.prayers.advance?'checked':''}> نماز سے 15 منٹ پہلے</label>
+ <p class="muted">دستی شہر: ${esc(c.city)}, ${esc(c.country)}۔ نماز کے اوقات کی تصدیق مقامی مسجد سے کریں۔ Notification کے لیے Android اجازت ضروری ہے۔</p>
+ <button class="main-btn" onclick="savePrayerSettings()">سیٹنگز محفوظ کریں</button><button class="outline-btn" onclick="choosePrayerCity();showPage('settings')">شہر تبدیل کریں</button></div>`}
+function savePrayerSettings(){const p=load('umrahPreferences',{});p.language=document.getElementById('prefLanguage').value;p.prayerMode=document.getElementById('prefPrayerMode').value;p.method=document.getElementById('prefMethod').value;p.notifications=document.getElementById('prefNotifications').checked;p.prayers=p.prayers||{};p.prayers.advance=document.getElementById('prefAdvance').checked;save('umrahPreferences',p);renderVerse();loadPrayerTimes();alert('سیٹنگز محفوظ ہوگئیں');goHome();}
+function initPremiumHome(){
+ refreshProfilePhoto();
+ const autoPrefs=load('umrahPreferences',{});
+ if(!autoPrefs.locationAutoInitialized){autoPrefs.prayerMode='automatic';autoPrefs.locationAutoInitialized=true;save('umrahPreferences',autoPrefs);}
+ renderVerse();if(!verseTimer)verseTimer=setInterval(()=>{premiumVerseIndex=(premiumVerseIndex+1)%PREMIUM_VERSES.length;renderVerse()},6500);
+ loadPrayerTimes();if(!prayerTimer)prayerTimer=setInterval(()=>{if(prayerSchedule){const today=cityNow(prayerSchedule.zone).date;if(today!==prayerDateKey)loadPrayerTimes();else renderPrayer()}},30000);
 }
 
+/* Onboarding is separate from the existing profile/travel data. */
+const OB_KEY="umrah_onboarding_v1";
+let obStep=0;
+let obPrefs={arabic:true,language:"ur",prayerMode:"automatic",notifications:false,method:"UmmAlQura",prayers:{fajr:true,dhuhr:true,asr:true,maghrib:true,isha:true,advance:false}};
+function obButton(label,fn,secondary=false){return `<button class="${secondary?'ob-secondary':'ob-primary'}" onclick="${fn}">${label}</button>`}
+function obWrap(body,privacy=false){return `<div class="ob-screen ${privacy?'ob-privacy':'ob-pattern'}">${body}</div>`}
+function obChoice(name,value,label){return `<button class="ob-choice ${obPrefs[name]===value?'selected':''}" onclick="obSet('${name}',${JSON.stringify(value).replace(/"/g,'&quot;')})">${label}</button>`}
+function obSet(k,v){obPrefs[k]=v;obRender()}
+function obPrayer(k,label){return `<label class="ob-check"><input type="checkbox" ${obPrefs.prayers[k]?'checked':''} onchange="obPrefs.prayers['${k}']=this.checked">${label}</label>`}
+function obRender(){
+ const root=document.getElementById('onboardRoot');
+ if(!root)return;
+ root.hidden=false;
+ document.getElementById('home').style.display='none';
+ document.getElementById('welcomeScreen').style.display='none';
+ document.getElementById('setupTravelScreen').style.display='none';
+ document.querySelector('.bottom-nav').style.display='none';
+ let body='';
+ if(obStep===0){body=obWrap(`<div class="splash-art" role="img" aria-label="Umrah Companion splash screen"><button class="splash-tap" onclick="obNext()" aria-label="بسم اللہ، آگے بڑھیں"></button></div>`)}
+ if(obStep===1){body=obWrap(`<div class="ob-kicker">حماية البيانات · رازداری</div><h1 class="ob-title">آپ کی رازداری</h1><p class="ob-sub">آپ کی معلومات کا تحفظ ہمارے لیے اہم ہے۔ آگے بڑھنے سے پہلے پڑھیں کہ یہ ایپ معلومات کیسے استعمال کرتی ہے۔</p><div class="ob-card"><h3>👤 پروفائل</h3><p>نام، ای میل، فون اور ملک کی معلومات فی الحال آپ کے براؤزر کے مقامی اسٹوریج میں محفوظ ہوتی ہیں۔</p></div><div class="ob-card"><h3>📍 لوکیشن</h3><p>نقشے اور راستے کے لیے آپ کی اجازت سے مقام استعمال ہوتا ہے۔ Google Maps اور OpenStreetMap جیسی بیرونی خدمات سے معلومات شیئر ہو سکتی ہیں۔</p></div><div class="ob-card"><h3>🧳 سفر اور اخراجات</h3><p>سفر، بجٹ، فہرستیں اور نوٹس فی الحال اسی ڈیوائس میں محفوظ کیے جاتے ہیں۔</p></div><div class="ob-card"><h3>🔔 نوٹیفکیشن</h3><p>آپ کی پسند محفوظ ہوگی؛ اصل نماز الرٹس کے لیے بعد میں مناسب نوٹیفکیشن سروس اور اجازت درکار ہوگی۔</p></div><div class="ob-card"><h3>🛡️ آپ کا اختیار</h3><p>آپ براؤزر کا محفوظ کردہ ڈیٹا حذف کر سکتے ہیں۔ یہ ابھی آن لائن اکاؤنٹ یا GDPR تعمیل کی ضمانت نہیں ہے۔</p></div><div class="ob-actions">${obButton('قبول کریں اور آگے بڑھیں','obNext()')}${obButton('قبول نہیں','obDecline()',true)}</div>`,true)}
+ const slides=[['📖 سیکھیں','علم میں اضافہ کریں','قرآن، احادیث، دعائیں، ذکر اور عمرہ کے طریقے ایک جگہ۔','قرآن و حدیث · دعائیں · نماز'],['📍 زیارات','مقدس مقامات دریافت کریں','مکہ اور مدینہ کی تاریخی زیارات، راستے اور مفید معلومات۔','زیارات · نقشے · رہنمائی'],['🧳 میرا سفر','اپنا عمرہ منظم کریں','فلائٹ، ہوٹل، بجٹ، سامان اور ضروری سفری تفصیلات۔','سفر · اخراجات · ہوٹل'],['🤲 عبادت','اپنی سہولت کے مطابق','زبان، عربی پڑھنے کی صلاحیت اور نماز کے وقت کی ترجیحات منتخب کریں۔','اردو · عربی · نماز']];
+ if(obStep>=2&&obStep<=5){
+  const a=slides[obStep-2];
+  const verses=[
+    ['وَقُل رَّبِّ زِدْنِي عِلْمًا','سورۃ طٰہٰ 20:114 — اے میرے رب! میرے علم میں اضافہ فرما'],
+    ['وَمَن يُعَظِّمْ شَعَائِرَ اللَّهِ فَإِنَّهَا مِن تَقْوَى الْقُلُوبِ','سورۃ الحج 22:32 — اللہ کی نشانیوں کی تعظیم دلوں کے تقویٰ سے ہے'],
+    ['وَأَتِمُّوا الْحَجَّ وَالْعُمْرَةَ لِلَّهِ','سورۃ البقرۃ 2:196 — حج اور عمرہ اللہ کے لیے پورے کرو'],
+    ['فَاذْكُرُونِي أَذْكُرْكُمْ','سورۃ البقرۃ 2:152 — تم مجھے یاد کرو، میں تمہیں یاد کروں گا']
+  ];
+  const v=verses[obStep-2];
+  body=obWrap(`<div class="ob-kicker">${a[0]}</div><h1 class="ob-title">${a[1]}</h1><div class="ob-verse" lang="ar">${v[0]}</div><div class="ob-verse-ref">${v[1]}</div><p class="ob-sub">${a[2]}</p><div class="ob-card ob-gold">${a[3]}</div><div class="ob-actions"><div class="ob-dots">${[2,3,4,5].map(n=>n===obStep?'●':'·').join(' ')}</div>${obButton('آگے بڑھیں ←','obNext()')}${obButton('پیچھے','obBack()',true)}</div>`)
+ }
+ if(obStep===6){body=obWrap(`<div class="ob-kicker">اپنی ترجیحات</div><h1 class="ob-title">اپنے سفر کو ذاتی بنائیں</h1><div class="ob-card"><h3>1۔ کیا آپ عربی پڑھ سکتے ہیں؟</h3><div class="ob-grid">${obChoice('arabic',true,'جی ہاں')}${obChoice('arabic',false,'نہیں')}</div></div><div class="ob-card"><h3>2۔ معلومات کی زبان</h3><select class="ob-select" onchange="obPrefs.language=this.value"><option value="ur" ${obPrefs.language==='ur'?'selected':''}>اردو</option><option value="en" ${obPrefs.language==='en'?'selected':''}>English</option></select><p class="ob-small">Dashboard کی منتخب معلومات English میں بھی ہوں گی؛ تمام صفحات کا مکمل ترجمہ ابھی باقی ہے۔</p></div><div class="ob-card"><h3>3۔ نماز کے اوقات</h3><div class="ob-grid">${obChoice('prayerMode','automatic','خودکار')}${obChoice('prayerMode','manual','دستی')}</div><p class="ob-small">خودکار طریقے کے لیے لوکیشن کی اجازت اور نماز اوقات کی سروس درکار ہوگی۔</p><label class="ob-check"><input type="checkbox" ${obPrefs.notifications?'checked':''} onchange="obPrefs.notifications=this.checked">اطلاعات کی ترجیح محفوظ کریں</label><h3>حساب کا طریقہ</h3><select class="ob-select" onchange="obPrefs.method=this.value"><option value="UmmAlQura">ام القریٰ (مکہ)</option><option value="Karachi" ${obPrefs.method==='Karachi'?'selected':''}>جامعہ علوم اسلامیہ کراچی</option><option value="MWL" ${obPrefs.method==='MWL'?'selected':''}>مسلم ورلڈ لیگ</option></select><p class="ob-small">نماز کے اوقات انٹرنیٹ سے حاصل کیے جاتے ہیں؛ درستگی مقامی مسجد سے چیک کریں۔</p>${obPrayer('fajr','فجر')}${obPrayer('dhuhr','ظہر')}${obPrayer('asr','عصر')}${obPrayer('maghrib','مغرب')}${obPrayer('isha','عشاء')}${obPrayer('advance','15 منٹ پہلے یاد دہانی')}</div><div class="ob-actions">${obButton('سفر شروع کریں ←','obFinish()')}${obButton('پیچھے','obBack()',true)}</div>`)}
+ root.innerHTML=body;root.scrollTop=0;
 }
-
+function obNext(){obStep=Math.min(obStep+1,6);obRender()}
+function obBack(){obStep=Math.max(obStep-1,0);obRender()}
+function obDecline(){alert('آپ کی رضامندی کے بغیر ایپ کا آغاز نہیں ہوگا۔');obStep=1;obRender()}
+function obFinish(){save('umrahPreferences',obPrefs);localStorage.setItem(OB_KEY,'accepted');document.getElementById('onboardRoot').hidden=true;document.querySelector('.bottom-nav').style.display='grid';startExistingApp()}
+function startExistingApp(){
+ const firstProfile=load('profile',{}),setupComplete=load('setupComplete',false);
+ if(firstProfile.name&&firstProfile.email&&firstProfile.contact&&firstProfile.country&&setupComplete){
+  document.getElementById('welcomeScreen').style.display='none';document.getElementById('setupTravelScreen').style.display='none';document.getElementById('home').style.display='block';updateHome();initPremiumHome();
+ }else if(firstProfile.name&&firstProfile.email&&firstProfile.contact&&firstProfile.country){
+  document.getElementById('welcomeScreen').style.display='none';document.getElementById('home').style.display='none';document.getElementById('setupTravelScreen').style.display='block';
+ }else{document.getElementById('home').style.display='none';document.getElementById('setupTravelScreen').style.display='none';document.getElementById('welcomeScreen').style.display='block'}
 }
-
-
-function resetTawaf(){
-
-if(
-confirm(
-"کیا آپ طواف کاؤنٹر دوبارہ صفر کرنا چاہتے ہیں؟"
-)
-){
-
-tawaf = 0;
-
-localStorage.setItem(
-"tawafCount",
-0
-);
-
-showCounters();
-
-}
-
-}
-
-
-function addSai(){
-
-if(sai < 7){
-
-sai++;
-
-localStorage.setItem(
-"saiCount",
-sai
-);
-
-showCounters();
-
-if(sai === 7){
-
-alert(
-"ماشاءاللہ! آپ کی سعی کے ۷ چکر مکمل ہو گئے۔"
-);
-
-}
-
-}
-
-}
-
-
-function resetSai(){
-
-if(
-confirm(
-"کیا آپ سعی کاؤنٹر دوبارہ صفر کرنا چاہتے ہیں؟"
-)
-){
-
-sai = 0;
-
-localStorage.setItem(
-"saiCount",
-0
-);
-
-showCounters();
-
-}
-
-}
-
-
-showCounters();
+if(localStorage.getItem(OB_KEY)==='accepted'){document.querySelector('.bottom-nav').style.display='grid';startExistingApp()}else{obRender()}
 
 </script>
-
 
 </body>
 </html>
