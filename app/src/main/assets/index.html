@@ -7,77 +7,104 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* Voice translator: local text history; internet is required for new translations.
-   MyMemory is a third-party service: only send text after pressing Translate. */
+/* Two-way Umrah conversation. Translation uses third-party MyMemory online service.
+   Arabic diacritics are supplied for curated phrases only, not invented for API results. */
 const TR_LANGS={ur:'ur-PK',ar:'ar-SA',en:'en-US'};
 const TR_CURATED={
  'ur|ar|مجھے مسجد نبوی جانے کے لیے ٹیکسی چاہیے۔':'أَحْتَاجُ إِلَى سَيَّارَةِ أُجْرَةٍ لِلذَّهَابِ إِلَى الْمَسْجِدِ النَّبَوِيِّ.',
  'ur|ar|مسجد الحرام کہاں ہے؟':'أَيْنَ يَقَعُ الْمَسْجِدُ الْحَرَامُ؟',
  'ur|ar|شکریہ':'شُكْرًا',
+ 'ur|ar|السلام علیکم':'السَّلَامُ عَلَيْكُمْ',
+ 'ur|ar|کتنے ریال؟':'بِكَمْ رِيَالًا؟',
+ 'ur|ar|مجھے پانی چاہیے':'أُرِيدُ مَاءً',
+ 'ar|ur|السَّلَامُ عَلَيْكُمْ':'السلام علیکم',
+ 'ar|ur|شُكْرًا':'شکریہ',
+ 'ar|ur|بِكَمْ رِيَالًا؟':'کتنے ریال؟',
  'en|ar|Thank you':'شُكْرًا',
  'en|ar|Where is the mosque?':'أَيْنَ الْمَسْجِدُ؟'
 };
-function translatorHTML(){
- return `<div class="tr-panel"><h3>🎙️ عمرہ وائس ٹرانسلیٹر</h3>
- <p class="tr-note">بول کر یا لکھ کر ترجمہ کریں۔ ترجمہ آواز میں سنیں اور اپنی مرضی سے محفوظ کریں۔</p>
- <div class="tr-lang"><div><label>آپ کی زبان</label><select id="trFrom"><option value="ur">اردو</option><option value="ar">العَرَبِيَّة</option><option value="en">English</option></select></div><button class="outline-btn" style="width:auto;margin:0" onclick="trSwap()">⇄</button><div><label>ترجمہ</label><select id="trTo"><option value="ar">العَرَبِيَّة</option><option value="ur">اردو</option><option value="en">English</option></select></div></div>
- <div style="margin-top:12px"><label>آپ کی گفتگو</label><textarea id="trInput" class="tr-area" placeholder="یہاں بولیں یا لکھیں..."></textarea></div>
- <div class="tr-actions"><button onclick="trListen()">🎤 بولیں</button><button onclick="trTranslate()">🌐 ترجمہ کریں</button></div>
- <div id="trStatus" class="tr-note" role="status" style="margin-top:8px"></div></div>
- <div class="tr-panel"><h3>ترجمہ</h3><div id="trOutput" class="tr-result" aria-live="polite">ترجمہ یہاں آئے گا۔</div>
- <div class="tr-actions" style="margin-top:12px"><button onclick="trSpeak()">🔊 سنیں</button><button onclick="trSave()">💾 محفوظ کریں</button></div>
- <p class="tr-note">عربی کے لیے آپ کا Muhammadi Quranic Font استعمال ہوتا ہے۔ عام خودکار ترجمے میں مکمل اعراب کی ضمانت نہیں؛ منتخب عام جملوں میں درست اعراب شامل ہیں۔</p></div>
- <div class="tr-panel"><h3>📚 محفوظ گفتگو (آف لائن دستیاب)</h3><input id="trSearch" oninput="trRenderHistory()" placeholder="محفوظ گفتگو تلاش کریں" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:12px"><div id="trHistory"></div><button class="outline-btn" onclick="trClearHistory()">محفوظ گفتگو حذف کریں</button></div>`;
-}
-let trLatest=null,trRecognizing=null;
+let trLatest=null,trRecognizing=null,trPendingSource=null,trBusy=false,trAutoSpeak=true;
+function translatorHTML(){return `<div class="tr-panel">
+ <h3>🎙️ Live Umrah Conversation</h3>
+ <p class="tr-note">اردو یا عربی کا مائیک دبائیں۔ آواز پہچانتے ہی ترجمہ خود ہوگا اور ترجمہ خود سنایا جائے گا۔ ہر جملے کے لیے Translate دبانے کی ضرورت نہیں۔</p>
+ <div class="tr-conversation-mics">
+ <button class="tr-mic" id="trUrMic" onclick="trListenLanguage('ur')">🎤<strong>اردو مائیک</strong><small>آپ اردو بولیں → عربی</small></button>
+ <button class="tr-mic" id="trArMic" onclick="trListenLanguage('ar')">🎤<strong>عربی مائیک</strong><small>سامنے والا عربی بولے → اردو</small></button>
+ </div>
+ <p id="trStatus" class="tr-note" role="status" aria-live="polite">گفتگو شروع کرنے کے لیے مائیک منتخب کریں۔</p>
+ <div class="tr-lang"><div><label>آپ کی زبان</label><select id="trFrom"><option value="ur">اردو</option><option value="ar">العَرَبِيَّة</option><option value="en">English</option></select></div><button class="outline-btn" style="width:auto;margin:0" onclick="trSwap()">⇄</button><div><label>ترجمے کی زبان</label><select id="trTo"><option value="ar">العَرَبِيَّة</option><option value="ur">اردو</option><option value="en">English</option></select></div></div>
+ <div style="margin-top:12px"><label>بولی گئی یا لکھی گئی بات</label><textarea id="trInput" class="tr-area" placeholder="یہاں بولیں یا لکھیں..."></textarea></div>
+ <div class="tr-actions"><button onclick="trListen()">🎤 منتخب زبان میں بولیں</button><button onclick="trTranslate()">🌐 لکھا ہوا ترجمہ کریں</button></div>
+ </div><div class="tr-panel"><h3>ترجمہ / Translation</h3>
+ <div id="trOutput" class="tr-result" aria-live="polite">ترجمہ یہاں آئے گا۔</div>
+ <div class="tr-actions" style="margin-top:12px"><button onclick="trSpeak()">🔊 دوبارہ سنیں</button><button onclick="trStopSpeech()">⏹️ آواز روکیں</button><button onclick="trSave()">💾 محفوظ کریں</button></div>
+ <label class="tr-auto"><input type="checkbox" id="trAutoSpeak" checked onchange="trAutoSpeak=this.checked"> ترجمہ خودکار آواز میں سنائیں</label>
+ <p class="tr-note">عربی متن Muhammadi Quranic Font میں دکھایا جاتا ہے۔ عام آن لائن ترجمے میں اعراب کی ضمانت نہیں؛ منتخب روزمرہ جملوں میں اعراب موجود ہیں۔ نئی گفتگو کے لیے انٹرنیٹ درکار ہو سکتا ہے۔</p>
+ </div><div class="tr-panel"><h3>📚 محفوظ گفتگو</h3><input id="trSearch" oninput="trRenderHistory()" placeholder="محفوظ گفتگو تلاش کریں" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:12px"><div id="trHistory"></div><button class="outline-btn" onclick="trClearHistory()">محفوظ گفتگو حذف کریں</button></div>`;}
 function trStatus(message){const el=document.getElementById('trStatus');if(el)el.textContent=message;}
-function trSwap(){const a=document.getElementById('trFrom'),b=document.getElementById('trTo');const t=a.value;a.value=b.value;b.value=t;}
-function trListen(){
- const lang=TR_LANGS[document.getElementById('trFrom').value];
- if(window.AndroidVoice&&typeof AndroidVoice.listen==='function'){
-   trStatus('مائیک پر بولیں…');AndroidVoice.listen(lang);return;
+function trSwap(){const a=document.getElementById('trFrom'),b=document.getElementById('trTo');if(!a||!b)return;const t=a.value;a.value=b.value;b.value=t;}
+function trListen(){const from=document.getElementById('trFrom');trListenLanguage(from?from.value:'ur');}
+function trListenLanguage(source){
+ if(trBusy){trStatus('پہلے موجودہ ترجمہ مکمل ہونے دیں۔');return;}
+ const a=document.getElementById('trFrom'),b=document.getElementById('trTo');if(!a||!b)return;
+ a.value=source;b.value=source==='ur'?'ar':source==='ar'?'ur':'ar';trPendingSource=source;
+ const lang=TR_LANGS[source]||'ur-PK';trStatus(source==='ar'?'عربی سن رہے ہیں…':'اردو سن رہے ہیں…');
+ if(window.AndroidVoice&&typeof window.AndroidVoice.listen==='function'){
+   try{window.AndroidVoice.listen(lang);}catch(e){trStatus('مائیک شروع نہیں ہو سکا۔');}return;
  }
  const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
- if(!Rec){trStatus('اس ڈیوائس پر آواز پہچاننے کی سہولت دستیاب نہیں۔ براہِ کرم لکھیں۔');return;}
- try{const rec=new Rec();trRecognizing=rec;rec.lang=lang;rec.interimResults=false;rec.onresult=e=>{document.getElementById('trInput').value=e.results[0][0].transcript;trStatus('آواز پہچان لی گئی۔ ترجمہ کریں دبائیں۔')};rec.onerror=e=>trStatus('مائیک مسئلہ: '+e.error);rec.start();trStatus('مائیک پر بولیں…');}catch(e){trStatus('مائیک شروع نہیں ہوا۔')}
+ if(!Rec){trStatus('اس ڈیوائس پر Speech Recognition دستیاب نہیں۔ براہِ کرم لکھیں۔');return;}
+ try{const rec=new Rec();trRecognizing=rec;rec.lang=lang;rec.interimResults=false;rec.onresult=e=>trReceiveSpeech(e.results[0][0].transcript);rec.onerror=e=>{trPendingSource=null;trStatus('مائیک مسئلہ: '+e.error)};rec.onnomatch=()=>{trPendingSource=null;trStatus('آواز واضح نہیں تھی، دوبارہ کوشش کریں۔')};rec.start();}catch(e){trPendingSource=null;trStatus('مائیک شروع نہیں ہوا۔')}
 }
-window.onNativeSpeechResult=function(value){const el=document.getElementById('trInput');if(el){el.value=value;trStatus('آواز پہچان لی گئی۔ ترجمہ کریں دبائیں۔')}};
-window.onNativeSpeechError=function(value){trStatus('مائیک: '+value)};
-async function trTranslate(){
- const source=document.getElementById('trFrom').value,target=document.getElementById('trTo').value;
- const input=document.getElementById('trInput').value.trim();
+function trReceiveSpeech(value){
+ const el=document.getElementById('trInput');if(!el)return;
+ el.value=String(value||'');trPendingSource=null;
+ if(el.value.trim())trTranslate(true);
+ else trStatus('آواز پہچانی نہیں گئی۔ دوبارہ بولیں۔');
+}
+window.onNativeSpeechResult=function(value){trReceiveSpeech(value)};
+window.onNativeSpeechError=function(value){trPendingSource=null;trStatus('مائیک: '+value)};
+async function trTranslate(auto=false){
+ if(trBusy)return;
+ const from=document.getElementById('trFrom'),to=document.getElementById('trTo'),field=document.getElementById('trInput');
+ if(!from||!to||!field)return;
+ const source=from.value,target=to.value,input=field.value.trim();
  if(!input){trStatus('پہلے کوئی جملہ لکھیں یا بولیں۔');return;}
  if(input.length>450){trStatus('ایک بار میں زیادہ سے زیادہ 450 حروف لکھیں۔');return;}
- trLatest=null;trStatus('ترجمہ حاصل کیا جا رہا ہے…');
+ trBusy=true;trLatest=null;trStatus('ترجمہ حاصل کیا جا رہا ہے…');
+ try{
  let translated='';
  if(source===target)translated=input;
  else if(TR_CURATED[source+'|'+target+'|'+input])translated=TR_CURATED[source+'|'+target+'|'+input];
- else {
-  try{
-   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
-   try{const url='https://api.mymemory.translated.net/get?q='+encodeURIComponent(input)+'&langpair='+encodeURIComponent(source+'|'+target);
-    const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw new Error('Service unavailable');
-    const data=await response.json();if(data.responseStatus!==200||!data.responseData||!data.responseData.translatedText)throw new Error('Translation unavailable');
-    translated=data.responseData.translatedText;
+ else{
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+   try{
+     const url='https://api.mymemory.translated.net/get?q='+encodeURIComponent(input)+'&langpair='+encodeURIComponent(source+'|'+target);
+     const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw Error('Service unavailable');
+     const data=await response.json();if(Number(data.responseStatus)!==200||!data.responseData||!data.responseData.translatedText)throw Error('Translation unavailable');
+     translated=data.responseData.translatedText;
    }finally{clearTimeout(timeout)}
-  }catch(e){trStatus('آن لائن ترجمہ نہیں ہو سکا۔ انٹرنیٹ چیک کریں یا دوبارہ کوشش کریں۔');return;}
  }
- const el=document.getElementById('trOutput');el.textContent=translated;el.classList.toggle('tr-arabic',target==='ar');
- trLatest={source,target,input,translated,date:new Date().toISOString()};trStatus('ترجمہ تیار ہے۔ محفوظ کرنے کے لیے 💾 دبائیں۔');
+ const output=document.getElementById('trOutput');if(!output)return;
+ output.textContent=translated;output.classList.toggle('tr-arabic',target==='ar');
+ trLatest={source,target,input,translated,date:new Date().toISOString()};
+ trStatus('ترجمہ تیار ہے۔ اگلے جملے کے لیے متعلقہ مائیک دبائیں۔');
+ if(trAutoSpeak)trSpeak();
+ }catch(e){trStatus('ترجمہ نہیں ہو سکا۔ انٹرنیٹ چیک کریں اور دوبارہ کوشش کریں۔');}
+ finally{trBusy=false;}
 }
 function trSpeak(){
  if(!trLatest){trStatus('پہلے ترجمہ کریں۔');return;}
  const lang=TR_LANGS[trLatest.target],message=trLatest.translated;
- if(window.AndroidVoice&&typeof AndroidVoice.speak==='function'){AndroidVoice.speak(message,lang);return;}
+ if(window.AndroidVoice&&typeof window.AndroidVoice.speak==='function'){
+   try{window.AndroidVoice.speak(message,lang);}catch(e){trStatus('آواز نہیں چل سکی۔');}return;
+ }
  if('speechSynthesis' in window){speechSynthesis.cancel();const utter=new SpeechSynthesisUtterance(message);utter.lang=lang;utter.rate=.86;speechSynthesis.speak(utter);return;}
  trStatus('اس ڈیوائس پر آواز سنانے کی سہولت دستیاب نہیں۔');
 }
-function trSave(){if(!trLatest){trStatus('پہلے ترجمہ کریں۔');return;}
- const rows=load('translatorHistory',[]);rows.unshift({...trLatest});save('translatorHistory',rows.slice(0,300));trStatus('گفتگو موبائل میں محفوظ ہو گئی۔');trRenderHistory();}
-function trRenderHistory(){const box=document.getElementById('trHistory');if(!box)return;
- const q=(document.getElementById('trSearch')?.value||'').trim().toLowerCase();const rows=load('translatorHistory',[]).filter(x=>(x.input+' '+x.translated).toLowerCase().includes(q));
- box.innerHTML=rows.length?rows.map(x=>`<div class="tr-history-item"><small>${esc(x.date?.slice(0,10))} · ${esc(x.source)} → ${esc(x.target)}</small><p>${esc(x.input)}</p><div class="${x.target==='ar'?'tr-arabic':''}">${esc(x.translated)}</div></div>`).join(''):'<p class="tr-note">ابھی کوئی محفوظ گفتگو نہیں۔</p>';
-}
+function trStopSpeech(){if('speechSynthesis' in window)speechSynthesis.cancel();if(window.AndroidVoice&&typeof window.AndroidVoice.stop==='function')window.AndroidVoice.stop();else trStatus('Native آواز روکنے کے لیے Android VoiceBridge میں stop() شامل کرنا ہوگا۔');}
+function trSave(){if(!trLatest){trStatus('پہلے ترجمہ کریں۔');return;}const rows=load('translatorHistory',[]);rows.unshift({...trLatest});save('translatorHistory',rows.slice(0,300));trStatus('گفتگو محفوظ ہو گئی۔');trRenderHistory();}
+function trRenderHistory(){const box=document.getElementById('trHistory');if(!box)return;const q=(document.getElementById('trSearch')?.value||'').trim().toLowerCase();const rows=load('translatorHistory',[]).filter(x=>(x.input+' '+x.translated).toLowerCase().includes(q));box.innerHTML=rows.length?rows.map(x=>`<div class="tr-history-item"><small>${esc(x.date?.slice(0,10))} · ${esc(x.source)} → ${esc(x.target)}</small><p>${esc(x.input)}</p><div class="${x.target==='ar'?'tr-arabic':''}">${esc(x.translated)}</div></div>`).join(''):'<p class="tr-note">ابھی کوئی محفوظ گفتگو نہیں۔</p>';}
 function trClearHistory(){if(confirm('کیا آپ محفوظ گفتگو حذف کرنا چاہتے ہیں؟')){save('translatorHistory',[]);trRenderHistory();}}
 
 </script>
@@ -304,6 +331,12 @@ h2{margin:0;font-size:23px}
 .profile-photo-picker{margin:10px 0;padding:12px;border:1px dashed #b8cabc;border-radius:12px}
 
 /* Umrah voice translator */
+.tr-conversation-mics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.tr-mic{border:1px solid #bfa260;border-radius:18px;background:linear-gradient(145deg,#0a634b,#064535);color:#fff;min-height:118px;padding:14px 8px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;font-size:28px;cursor:pointer}
+.tr-mic:nth-child(2){background:linear-gradient(145deg,#b28a37,#856520)}
+.tr-mic strong{font-size:20px}.tr-mic small{font-size:13px;line-height:1.6}
+.tr-auto{display:flex;align-items:center;gap:8px;margin:14px 0;font-size:16px}.tr-auto input{width:20px;height:20px;accent-color:#0b6b53}
+
 .tr-panel{background:#fff;border:1px solid #e6e8de;border-radius:20px;padding:16px;margin-bottom:14px}
 .tr-panel h3{margin:0 0 10px;color:#075541}.tr-lang{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:7px}
 .tr-lang select{width:100%;min-width:0;padding:10px;border:1px solid #cbdcd5;border-radius:12px;background:white}
