@@ -1,4 +1,11 @@
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Microphone Permission -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Internet Permission for Online Translation -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
